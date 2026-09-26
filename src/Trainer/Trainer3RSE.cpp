@@ -22,6 +22,7 @@
 
 #include "Trainer/Trainer3RSE.h"
 #include "Trainer/Trainer3FRLG.h" // only for the sector-magic cross-check below
+#include "Names/MoveInfo.h"
 #include "Utils/Gen3Text.h" // the Gen 3 character set, shared with Pokemon3RSE + Convert
 #include "Utils/HelperUtilities.h"
 #include "Utils/Logger.h"
@@ -602,8 +603,27 @@ namespace Trainer
             const size_t logical = OFS_PARTY + partySlotIndex * 100;
             if (partySlotIndex < party.size() && party[partySlotIndex] && party[partySlotIndex]->speciesID() != 0)
             {
+                auto &pk = party[partySlotIndex];
+                if (pk->pid() == 0)
+                {
+                    uint32_t newPid = Utils::rand32();
+                    if (newPid == 0) newPid = 1;
+                    pk->setPID(newPid);
+                }
+                if (pk->statHPCurrent() == 0)
+                {
+                    pk->setStatHPCurrent(pk->statHPMax());
+                }
+                for (int m = 0; m < 4; ++m)
+                {
+                    if (pk->move(m) != 0 && pk->movePP(m) == 0)
+                    {
+                        pk->setMovePP(m, Names::getMoveBasePP(pk->move(m), getGameGroup()));
+                    }
+                }
+                pk->refreshChecksum();
                 uint8_t recordBytes[100];
-                buildPartyRecord(*party[partySlotIndex], recordBytes);
+                buildPartyRecord(*pk, recordBytes);
                 writeBlock(LARGE_ID, logical, recordBytes, 100);
             }
             else
@@ -629,10 +649,25 @@ namespace Trainer
             {
                 const size_t index = boxIndex * RSE_BOX_SLOTS + slotIndex;
                 const size_t logical = 0x0004 + index * 80;
-                if (boxes[boxIndex][slotIndex] && boxes[boxIndex][slotIndex]->speciesID() != 0)
+                auto &pokemon = boxes[boxIndex][slotIndex];
+                if (pokemon && pokemon->speciesID() != 0)
                 {
+                    if (pokemon->pid() == 0)
+                    {
+                        uint32_t newPid = Utils::rand32();
+                        if (newPid == 0) newPid = 1;
+                        pokemon->setPID(newPid);
+                    }
+                    for (int m = 0; m < 4; ++m)
+                    {
+                        if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                        {
+                            pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), getGameGroup()));
+                        }
+                    }
+                    pokemon->refreshChecksum();
                     uint8_t recordBytes[80];
-                    buildBoxRecord(*boxes[boxIndex][slotIndex], recordBytes);
+                    buildBoxRecord(*pokemon, recordBytes);
                     writeBlock(STORAGE_ID, logical, recordBytes, 80);
                 }
                 else

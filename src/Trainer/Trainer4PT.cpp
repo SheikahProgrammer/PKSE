@@ -4,6 +4,7 @@
 
 #include "Trainer/Trainer4PT.h"
 #include "Trainer/Inventory4PT.h"
+#include "Names/MoveInfo.h"
 #include "Utils/CRC16.h"
 #include "Utils/Gen4Text.h"
 #include "Utils/HelperUtilities.h"
@@ -272,13 +273,33 @@ namespace Trainer
         {
             if (!party[partySlotIndex] || party[partySlotIndex]->speciesID() == 0)
                 continue;
-            party[partySlotIndex]->refreshChecksum(); // BEFORE encrypting -- the checksum is the crypt key
+
+            auto &pk = party[partySlotIndex];
+            if (pk->pid() == 0)
+            {
+                uint32_t newPid = Utils::rand32();
+                if (newPid == 0) newPid = 1;
+                pk->setPID(newPid);
+            }
+            if (pk->statHPCurrent() == 0)
+            {
+                pk->setStatHPCurrent(pk->statHPMax());
+            }
+            for (int m = 0; m < 4; ++m)
+            {
+                if (pk->move(m) != 0 && pk->movePP(m) == 0)
+                {
+                    pk->setMovePP(m, Names::getMoveBasePP(pk->move(m), getGameGroup()));
+                }
+            }
+            pk->refreshChecksum(); // BEFORE encrypting -- the checksum is the crypt key
+
             // Staged through a party-length buffer rather than encrypted in place. Every entity
             // that reaches the party should already be party size (makeEntity grows box records
             // on load), but an entity arriving from elsewhere need not be, and encrypting a
             // party-length span over a shorter allocation reads off the end of the heap.
             std::vector<std::byte> rec(Encryption::SIZE_PARTY4_PT, std::byte{0});
-            const auto srcData = party[partySlotIndex]->getData();
+            const auto srcData = pk->getData();
             std::memcpy(rec.data(), srcData.data(), std::min(rec.size(), srcData.size()));
             std::byte *encryptedRecord = Encryption::encryptArray4PT(rec);
             std::memcpy(g + ofsParty() + written * Encryption::SIZE_PARTY4_PT, encryptedRecord,
@@ -304,6 +325,19 @@ namespace Trainer
                 auto &pokemon = boxes[boxIndex][slotIndex];
                 if (pokemon && pokemon->speciesID() != 0)
                 {
+                    if (pokemon->pid() == 0)
+                    {
+                        uint32_t newPid = Utils::rand32();
+                        if (newPid == 0) newPid = 1;
+                        pokemon->setPID(newPid);
+                    }
+                    for (int m = 0; m < 4; ++m)
+                    {
+                        if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                        {
+                            pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), getGameGroup()));
+                        }
+                    }
                     pokemon->refreshChecksum();
                     // Only the STORED half goes to a box slot; a party-size entity's tail (level,
                     // battle stats) is exactly what a box record does not carry.

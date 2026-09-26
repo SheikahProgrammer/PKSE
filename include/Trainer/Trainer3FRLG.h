@@ -129,6 +129,8 @@ namespace Trainer
 
         // Recompute all 14 active-slot sector checksums into their footers (call before writing to disk).
         void finalizeChecksums();
+        /// Commit every block and refresh checksums, returning the full 128 KiB image for writing to disk.
+        const std::vector<uint8_t> &serialize();
     };
 }
 

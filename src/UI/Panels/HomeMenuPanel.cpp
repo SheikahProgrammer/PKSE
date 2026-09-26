@@ -101,7 +101,7 @@ namespace UI
         }
 
         // Simple vector icons for the menu's circular buttons (no icon assets). `col` = glyph color,
-        // `bg` = the button fill (used to punch holes). kind: 0 Items (bag), 1 Trainer (person), 2 Settings (gear).
+        // `bg` = the button fill (used to punch holes). kind: 0 Items (bag), 1 Events (gift box), 2 Trainer (person), 3 Settings (gear).
         static void drawMenuIcon(PKSEFramebuffer &framebuffer, int centerX, int centerY, int cornerRadius, int kind,
                                  Color iconColor, Color backgroundColor)
         {
@@ -116,6 +116,26 @@ namespace UI
                 framebuffer.drawFilledRoundedRect(centerX - 3, centerY - 2, 6, bh / 2, 3, backgroundColor);
             }
             else if (kind == 1)
+            { // Events: a gift box with ribbon
+                const int boxW = 2 * cornerRadius - 4, boxH = cornerRadius + 4;
+                const int boxX = centerX - boxW / 2, boxY = centerY - boxH / 2 + 5;
+                // Box lid
+                const int lidW = boxW + 6, lidH = 8;
+                framebuffer.drawFilledRoundedRect(centerX - lidW / 2, boxY - lidH, lidW, lidH, 3, iconColor);
+                // Box body
+                framebuffer.drawFilledRoundedRect(boxX, boxY, boxW, boxH, 4, iconColor);
+                // Vertical ribbon
+                const int ribW = 6;
+                framebuffer.drawFilledRect(centerX - ribW / 2, boxY - lidH, ribW, boxH + lidH, backgroundColor);
+                // Horizontal ribbon
+                framebuffer.drawFilledRect(boxX, boxY + boxH / 2 - 2, boxW, 4, backgroundColor);
+                // Ribbon bow on top
+                framebuffer.drawFilledCircle(centerX - 5, boxY - lidH - 3, 4, iconColor);
+                framebuffer.drawFilledCircle(centerX + 5, boxY - lidH - 3, 4, iconColor);
+                framebuffer.drawFilledCircle(centerX - 5, boxY - lidH - 3, 2, backgroundColor);
+                framebuffer.drawFilledCircle(centerX + 5, boxY - lidH - 3, 2, backgroundColor);
+            }
+            else if (kind == 2)
             {                                                        // Trainer: a person bust
                 // head
                 framebuffer.drawFilledCircle(centerX, centerY - cornerRadius / 2, cornerRadius / 2 - 1, iconColor);
@@ -207,11 +227,11 @@ namespace UI
                 const char *glyph;
                 int menuIndex;
             };
-            Icon icons[3] = {{"Items", "I", 3}, {"Trainer", "T", 4}, {"Settings", "S", 5}};
-            const int iconR = 42;
-            const int slot = rW / 3;
+            Icon icons[4] = {{"Items", "I", 3}, {"Events", "E", 4}, {"Trainer", "T", 5}, {"Settings", "S", 6}};
+            const int iconR = 38;
+            const int slot = rW / 4;
             const int iconTop = panelY + 22;
-            for (int innerIndex = 0; innerIndex < 3; ++innerIndex)
+            for (int innerIndex = 0; innerIndex < 4; ++innerIndex)
             {
                 const auto &ic = icons[innerIndex];
                 const int centerX = rightColumnX + slot * innerIndex + slot / 2;

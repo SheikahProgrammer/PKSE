@@ -1,6 +1,7 @@
 #ifndef UI_SYSTEM_ICONS_H
 #define UI_SYSTEM_ICONS_H
 
+#include <string>
 #include <switch.h>
 
 namespace UI
@@ -24,6 +25,8 @@ namespace UI
         const IconImage &userIcon(AccountUid accountUid);
         // A game's icon from its control data (JPEG decoded to RGBA). Cached by title id.
         const IconImage &titleIcon(u64 titleId);
+        // An icon loaded directly from a file (romfs:/ or sdmc:/).
+        const IconImage &fileIcon(const std::string &path);
         // Free every cached buffer. Call once at shutdown.
         void cleanup();
     }

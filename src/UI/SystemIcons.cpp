@@ -27,8 +27,9 @@ namespace UI
 
         std::map<UidKey, IconImage> s_userCache;
         std::map<u64, IconImage> s_titleCache;
+        std::map<std::string, IconImage> s_fileCache;
 
-        // Decode a JPEG blob to a session-owned RGBA IconImage (invalid on failure).
+        // Decode a JPEG/PNG blob to a session-owned RGBA IconImage (invalid on failure).
         IconImage decodeToRGBA(const unsigned char *jpg, int length)
         {
             IconImage image;
@@ -43,12 +44,69 @@ namespace UI
         }
     }
 
+    const IconImage &SystemIcons::fileIcon(const std::string &path)
+    {
+        if (path.empty())
+        {
+            static const IconImage empty{};
+            return empty;
+        }
+
+        auto iterator = s_fileCache.find(path);
+        if (iterator != s_fileCache.end())
+            return iterator->second;
+
+        IconImage image;
+        int width = 0, height = 0, comp = 0;
+        std::string fullPath = path;
+        if (fullPath.rfind("romfs:/", 0) != 0 && fullPath.rfind("sdmc:/", 0) != 0 && fullPath.rfind("/", 0) != 0)
+        {
+            fullPath = "romfs:/" + path;
+        }
+
+        unsigned char *rgba = stbi_load(fullPath.c_str(), &width, &height, &comp, 4);
+        if (rgba)
+        {
+            image.data = rgba;
+            image.width = width;
+            image.height = height;
+        }
+        else if (path.rfind("sdmc:/", 0) != 0 && path.rfind("romfs:/", 0) != 0)
+        {
+            std::string alt = "sdmc:/" + path;
+            rgba = stbi_load(alt.c_str(), &width, &height, &comp, 4);
+            if (rgba)
+            {
+                image.data = rgba;
+                image.width = width;
+                image.height = height;
+            }
+        }
+
+        if (!image.valid())
+        {
+            logInfoToFile("SystemIcons: failed to load icon from file", path.c_str());
+        }
+        return s_fileCache.emplace(path, image).first->second;
+    }
+
     const IconImage &SystemIcons::userIcon(AccountUid accountUid)
     {
         UidKey key{accountUid.uid[0], accountUid.uid[1]};
         auto iterator = s_userCache.find(key);
         if (iterator != s_userCache.end())
             return iterator->second;
+
+        // Check for Tico sentinel user (0xFF...)
+        if (accountUid.uid[0] == 0xFFFFFFFFFFFFFFFFULL && accountUid.uid[1] == 0xFFFFFFFFFFFFFFFFULL)
+        {
+            const IconImage &tico = fileIcon("romfs:/icons/tico.png");
+            if (tico.valid())
+                return s_userCache.emplace(key, tico).first->second;
+            const IconImage &ticoSdmc = fileIcon("sdmc:/tico/assets/icons/tico.png");
+            if (ticoSdmc.valid())
+                return s_userCache.emplace(key, ticoSdmc).first->second;
+        }
 
         IconImage image;
         AccountProfile profile;
@@ -106,7 +164,11 @@ namespace UI
         for (auto &kv : s_titleCache)
             if (kv.second.data)
                 stbi_image_free(kv.second.data);
+        for (auto &kv : s_fileCache)
+            if (kv.second.data)
+                stbi_image_free(kv.second.data);
         s_userCache.clear();
         s_titleCache.clear();
+        s_fileCache.clear();
     }
 }

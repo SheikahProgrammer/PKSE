@@ -45,6 +45,8 @@ namespace UI
             std::string name;   // prose: "Pokemon Shield", for title bars and dialog text
             std::string label;  // short display name under the icon (e.g. "Shield")
             std::string folder; // backup directory name, carrying the title id -- NOT the prose
+            std::string filePath; // non-empty for emulator loose saves: absolute path to .sav / main
+            std::string iconPath; // custom icon path if applicable (e.g. romfs:/icons/...)
             /// The version the folder and label were BUILT from. Not re-derivable: an id PKSE does
             /// not recognise is resolved by CONTENT, and getGameVersion() answers Invalid for it.
             Enums::GameVersion gameVersion = Enums::GameVersion::Invalid;
@@ -112,6 +114,9 @@ namespace UI
         void handleFileBrowserInput(u64 buttonsDown, const TouchInput &touch);
 
         void loadUsers();
+        void loadTicoSaves();
+        void scanTicoDir(UserEntry &user, const std::string &dir, const std::string &platform);
+        void scanCitraDir(UserEntry &user, const std::string &basePath);
         // Titles come from enumerating SAVE DATA, not installed applications: a game played from a
         // cartridge that is currently out, or one that has been uninstalled, keeps its save on
         // internal storage and must still be editable.

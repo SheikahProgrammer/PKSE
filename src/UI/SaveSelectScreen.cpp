@@ -1,5 +1,8 @@
 #include <cstring>
 #include <cstdio>
+#include <cctype>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include "Globals.h"
 #include "UI/SaveSelectScreen.h"
@@ -38,6 +41,7 @@ namespace UI
     SaveSelectScreen::SaveSelectScreen()
     {
         loadUsers();
+        loadTicoSaves();
     }
 
     void SaveSelectScreen::loadUsers()
@@ -350,6 +354,12 @@ namespace UI
         const UserEntry *u = currentUser();
         if (!u || titleIndex < 0 || titleIndex >= static_cast<int>(u->titles.size()))
             return;
+        if (!u->titles[titleIndex].filePath.empty())
+        {
+            selectedFilePath = u->titles[titleIndex].filePath;
+            fileSelected = true;
+            return;
+        }
         selectedUserUid = u->accountUid;
         selectedTitleId = u->titles[titleIndex].titleId;
         selectedTitleName = u->titles[titleIndex].name;
@@ -551,9 +561,21 @@ namespace UI
 
                 int iconX = tileX + (TILE_W - ICON) / 2;
                 int iconY = tileY + 16;
-                const IconImage &ic = SystemIcons::titleIcon(u->titles[index].titleId);
-                if (ic.valid())
-                    framebuffer.drawImageScaled(iconX, iconY, ic.width, ic.height, ICON, ICON, ic.data, 4);
+                const IconImage *pIc = nullptr;
+                if (!u->titles[index].iconPath.empty())
+                {
+                    const IconImage &fileIc = SystemIcons::fileIcon(u->titles[index].iconPath);
+                    if (fileIc.valid())
+                        pIc = &fileIc;
+                }
+                if (!pIc)
+                {
+                    const IconImage &sysIc = SystemIcons::titleIcon(u->titles[index].titleId);
+                    if (sysIc.valid())
+                        pIc = &sysIc;
+                }
+                if (pIc && pIc->valid())
+                    framebuffer.drawImageScaled(iconX, iconY, pIc->width, pIc->height, ICON, ICON, pIc->data, 4);
                 else
                     framebuffer.drawFilledRoundedRect(iconX, iconY, ICON, ICON, 10, Colors::PanelAlt);
 
@@ -697,4 +719,464 @@ namespace UI
         fileBrowser.close();
         logEventToFile("OPENSAVE action=PICK file=\"" + picked + "\" size=" + std::to_string(length) + " result=OK");
     }
+
+    // ---- 3DS / Citra / Tico Emulator integration ----
+
+    static bool isPokemonGame(const std::string &name)
+    {
+        std::string lower = name;
+        for (char &c : lower)
+            c = std::tolower(static_cast<unsigned char>(c));
+        if (lower.find("pokemon") != std::string::npos ||
+            lower.find("pokémon") != std::string::npos ||
+            lower.find("pkmn") != std::string::npos ||
+            lower.find("pocket monster") != std::string::npos)
+        {
+            return true;
+        }
+        static const char *const s_pkmnKeywords[] = {
+            "crystal clear", "polished crystal", "polishedcrystal",
+            "darkviolet", "dark violet", "radical red", "emerald seaglass",
+            "inclement emerald", "unbound", "gaia", "firered", "leafgreen",
+            "heartgold", "soulsilver", "omegaruby", "alphasapphire",
+            "ultra sun", "ultra moon", "ultrasun", "ultramoon", "stadium 2",
+            "trading card", "tcg"};
+        for (const char *kw : s_pkmnKeywords)
+        {
+            if (lower.find(kw) != std::string::npos)
+                return true;
+        }
+        return false;
+    }
+
+    static const char *get3DSGameName(const std::string &tidStr)
+    {
+        if (tidStr == "00055d00" || tidStr == "00055e00" || tidStr == "00055c00")
+            return "Pokemon X";
+        if (tidStr == "00055f00" || tidStr == "00056000")
+            return "Pokemon Y";
+        if (tidStr == "0011c400" || tidStr == "0011c600")
+            return "Pokemon Omega Ruby";
+        if (tidStr == "0011c500" || tidStr == "0011c700")
+            return "Pokemon Alpha Sapphire";
+        if (tidStr == "00164800")
+            return "Pokemon Sun";
+        if (tidStr == "00175e00")
+            return "Pokemon Moon";
+        if (tidStr == "001b5000")
+            return "Pokemon Ultra Sun";
+        if (tidStr == "001b5100")
+            return "Pokemon Ultra Moon";
+        return nullptr;
+    }
+
+    static std::string formatCleanLabel(const std::string &raw)
+    {
+        std::string s = raw;
+        if (s.rfind("Pokemon - ", 0) == 0) s = s.substr(10);
+        else if (s.rfind("Pokemon ", 0) == 0) s = s.substr(8);
+        else if (s.rfind("Pokémon - ", 0) == 0) s = s.substr(11);
+        else if (s.rfind("Pokémon ", 0) == 0) s = s.substr(9);
+        else if (s.rfind("3DS_ Pokemon ", 0) == 0) s = s.substr(13);
+        else if (s.rfind("GBA_ Pokemon ", 0) == 0) s = s.substr(13);
+        else if (s.rfind("NDS_ Pokemon - ", 0) == 0) s = s.substr(15);
+        else if (s.rfind("NDS_ Pokemon ", 0) == 0) s = s.substr(13);
+        else if (s.rfind("GBC_ ", 0) == 0) s = s.substr(5);
+
+        size_t vPos = s.find(" Version");
+        if (vPos != std::string::npos) s = s.substr(0, vPos);
+        size_t pPos = s.find(" (");
+        if (pPos != std::string::npos) s = s.substr(0, pPos);
+
+        if (s.find("polishedcrystal") != std::string::npos || s.find("Polishedcrystal") != std::string::npos)
+            return "Polished Crystal";
+        if (s.find("darkviolet") != std::string::npos || s.find("Darkviolet") != std::string::npos)
+            return "Dark Violet";
+        if (s == "Firered" || s == "firered")
+            return "FireRed";
+        if (s == "Leafgreen" || s == "leafgreen")
+            return "LeafGreen";
+        if (s.find("Emerald Seaglass") != std::string::npos)
+            return "Emerald Seaglass";
+
+        return s;
+    }
+
+    static std::string resolveGameIcon(const std::string &platform, const std::string &label, const std::string &savePath)
+    {
+        std::string platLower = platform;
+        for (char &c : platLower)
+            c = std::tolower(static_cast<unsigned char>(c));
+
+        struct stat st;
+
+        // 1. Direct match in sdmc:/tico/assets/icons/<plat>/<label>.png
+        std::string p1 = "sdmc:/tico/assets/icons/" + platLower + "/" + label + ".png";
+        if (stat(p1.c_str(), &st) == 0)
+            return p1;
+
+        // 2. Direct match in sdmc:/tico/assets/covers/<plat>/<label>.jpg
+        std::string p2 = "sdmc:/tico/assets/covers/" + platLower + "/" + label + ".jpg";
+        if (stat(p2.c_str(), &st) == 0)
+            return p2;
+
+        // 3. Extract stem from savePath filename
+        size_t lastSlash = savePath.find_last_of('/');
+        std::string saveStem = (lastSlash != std::string::npos) ? savePath.substr(lastSlash + 1) : savePath;
+        size_t lastDot = saveStem.find_last_of('.');
+        if (lastDot != std::string::npos)
+            saveStem = saveStem.substr(0, lastDot);
+
+        std::string p3 = "sdmc:/tico/assets/icons/" + platLower + "/" + saveStem + ".png";
+        if (stat(p3.c_str(), &st) == 0)
+            return p3;
+
+        std::string p4 = "sdmc:/tico/assets/covers/" + platLower + "/" + saveStem + ".jpg";
+        if (stat(p4.c_str(), &st) == 0)
+            return p4;
+
+        // 4. Bundled RomFS fallback for vanilla and romhack games
+        std::string l = label;
+        for (char &c : l)
+            c = std::tolower(static_cast<unsigned char>(c));
+
+        if (l.find("firered") != std::string::npos || l.find("fire red") != std::string::npos || l.find("darkviolet") != std::string::npos || l.find("dark violet") != std::string::npos)
+            return "romfs:/icons/firered.png";
+        if (l.find("leafgreen") != std::string::npos || l.find("leaf green") != std::string::npos)
+            return "romfs:/icons/leafgreen.png";
+        if (l.find("emerald") != std::string::npos || l.find("seaglass") != std::string::npos)
+            return "romfs:/icons/emerald.png";
+        if (l.find("alpha sapphire") != std::string::npos || l.find("alphasapphire") != std::string::npos)
+            return "romfs:/icons/alphasapphire.png";
+        if (l.find("omega ruby") != std::string::npos || l.find("omegaruby") != std::string::npos)
+            return "romfs:/icons/omegaruby.png";
+        if (l.find("ruby") != std::string::npos)
+            return "romfs:/icons/ruby.png";
+        if (l.find("sapphire") != std::string::npos)
+            return "romfs:/icons/sapphire.png";
+        if (l.find("pokemon x") != std::string::npos || l == "x" || l == "pokemon - x")
+            return "romfs:/icons/x.png";
+        if (l.find("pokemon y") != std::string::npos || l == "y" || l == "pokemon - y")
+            return "romfs:/icons/y.png";
+        if (l.find("heartgold") != std::string::npos || l.find("heart gold") != std::string::npos)
+            return "romfs:/icons/heartgold.png";
+        if (l.find("soulsilver") != std::string::npos || l.find("soul silver") != std::string::npos)
+            return "romfs:/icons/soulsilver.png";
+        if (l.find("platinum") != std::string::npos)
+            return "romfs:/icons/platinum.png";
+        if (l.find("diamond") != std::string::npos)
+            return "romfs:/icons/diamond.png";
+        if (l.find("pearl") != std::string::npos)
+            return "romfs:/icons/pearl.png";
+        if (l.find("black 2") != std::string::npos || l.find("black2") != std::string::npos)
+            return "romfs:/icons/black2.png";
+        if (l.find("white 2") != std::string::npos || l.find("white2") != std::string::npos)
+            return "romfs:/icons/white2.png";
+        if (l.find("black") != std::string::npos)
+            return "romfs:/icons/black.png";
+        if (l.find("white") != std::string::npos)
+            return "romfs:/icons/white.png";
+        if (l.find("ultra sun") != std::string::npos || l.find("ultrasun") != std::string::npos)
+            return "romfs:/icons/ultrasun.png";
+        if (l.find("ultra moon") != std::string::npos || l.find("ultramoon") != std::string::npos)
+            return "romfs:/icons/ultramoon.png";
+        if (l.find("sun") != std::string::npos)
+            return "romfs:/icons/sun.png";
+        if (l.find("moon") != std::string::npos)
+            return "romfs:/icons/moon.png";
+        if (l.find("crystal") != std::string::npos || l.find("polished") != std::string::npos)
+            return "romfs:/icons/crystal.png";
+        if (l.find("gold") != std::string::npos)
+            return "romfs:/icons/gold.png";
+        if (l.find("silver") != std::string::npos)
+            return "romfs:/icons/silver.png";
+        if (l.find("yellow") != std::string::npos)
+            return "romfs:/icons/yellow.png";
+        if (l.find("red") != std::string::npos)
+            return "romfs:/icons/red.png";
+        if (l.find("blue") != std::string::npos)
+            return "romfs:/icons/blue.png";
+        if (l.find("stadium 2") != std::string::npos || l.find("stadium2") != std::string::npos)
+            return "romfs:/icons/stadium2.png";
+        if (l.find("trading card") != std::string::npos || l.find("tcg") != std::string::npos)
+            return "romfs:/icons/tcg.png";
+
+        return "romfs:/icons/tico.png";
+    }
+
+    void SaveSelectScreen::scanCitraDir(UserEntry &user, const std::string &basePath)
+    {
+        DIR *d0 = opendir(basePath.c_str());
+        if (!d0)
+            return;
+        struct dirent *ent0;
+        while ((ent0 = readdir(d0)) != nullptr)
+        {
+            if (ent0->d_name[0] == '.')
+                continue;
+            char path0[1024];
+            snprintf(path0, sizeof(path0), "%s/%s", basePath.c_str(), ent0->d_name);
+            DIR *d1 = opendir(path0);
+            if (!d1)
+                continue;
+            struct dirent *ent1;
+            while ((ent1 = readdir(d1)) != nullptr)
+            {
+                if (ent1->d_name[0] == '.')
+                    continue;
+                char titleDir[1024];
+                snprintf(titleDir, sizeof(titleDir), "%s/%s/title/00040000", path0, ent1->d_name);
+                DIR *dt = opendir(titleDir);
+                if (!dt)
+                    continue;
+                struct dirent *entT;
+                while ((entT = readdir(dt)) != nullptr)
+                {
+                    if (entT->d_name[0] == '.')
+                        continue;
+                    std::string tid = entT->d_name;
+                    char mainPath[1024];
+                    snprintf(mainPath, sizeof(mainPath), "%s/%s/data/00000001/main", titleDir, tid.c_str());
+                    struct stat st;
+                    if (stat(mainPath, &st) == 0 && S_ISREG(st.st_mode) && st.st_size >= 0x65600)
+                    {
+                        const char *gName = get3DSGameName(tid);
+                        if (!gName)
+                            continue;
+                        std::string displayLabel = formatCleanLabel(gName);
+
+                        bool duplicate = false;
+                        for (const auto &existing : user.titles)
+                        {
+                            if (existing.filePath == mainPath || existing.label == displayLabel)
+                            {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if (duplicate)
+                            continue;
+
+                        TitleEntry t;
+                        t.titleId = 0;
+                        t.filePath = std::string(mainPath);
+                        t.label = displayLabel;
+                        t.name = displayLabel;
+                        t.folder = displayLabel;
+                        t.iconPath = resolveGameIcon("3DS", displayLabel, mainPath);
+
+                        char m[256];
+                        snprintf(m, sizeof(m), "Citra: found 3DS save: %s (%s, %ld bytes, icon: %s)", mainPath,
+                                 displayLabel.c_str(), (long)st.st_size, t.iconPath.c_str());
+                        logInfoToFile(m);
+
+                        user.titles.push_back(std::move(t));
+                    }
+                }
+                closedir(dt);
+            }
+            closedir(d1);
+        }
+        closedir(d0);
+    }
+
+    void SaveSelectScreen::scanTicoDir(UserEntry &user, const std::string &dir, const std::string &platform)
+    {
+        DIR *d = opendir(dir.c_str());
+        if (!d)
+            return;
+        struct dirent *ent;
+        const bool is3DS = (platform == "3DS");
+
+        while ((ent = readdir(d)) != nullptr)
+        {
+            std::string name = ent->d_name;
+            if (name == "." || name == "..")
+                continue;
+
+            std::string fullPath = dir + "/" + name;
+            struct stat st;
+            if (stat(fullPath.c_str(), &st) != 0)
+                continue;
+
+            if (S_ISDIR(st.st_mode))
+            {
+                if (name == "melonDS" || name == "states" || name == "cheats" || name[0] == '.')
+                    continue;
+                DIR *subD = opendir(fullPath.c_str());
+                if (subD)
+                {
+                    struct dirent *subEnt;
+                    while ((subEnt = readdir(subD)) != nullptr)
+                    {
+                        std::string subName = subEnt->d_name;
+                        if (subName == "." || subName == "..")
+                            continue;
+                        std::string subFullPath = fullPath + "/" + subName;
+                        struct stat subSt;
+                        if (stat(subFullPath.c_str(), &subSt) != 0 || !S_ISREG(subSt.st_mode))
+                            continue;
+
+                        bool isSubSave = false;
+                        std::string rawLabel = subName;
+                        if (subName == "main")
+                        {
+                            isSubSave = true;
+                            rawLabel = name;
+                        }
+                        else if (subName.size() > 4)
+                        {
+                            std::string ext = subName.substr(subName.size() - 4);
+                            if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv")
+                            {
+                                isSubSave = true;
+                                rawLabel = subName.substr(0, subName.size() - 4);
+                            }
+                        }
+                        if (!isSubSave)
+                            continue;
+
+                        std::string displayLabel = formatCleanLabel(rawLabel);
+                        if (!isPokemonGame(displayLabel) && !isPokemonGame(rawLabel) && !isPokemonGame(name))
+                            continue;
+
+                        bool duplicate = false;
+                        for (const auto &existing : user.titles)
+                        {
+                            if (existing.filePath == subFullPath || existing.label == displayLabel)
+                            {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+                        if (duplicate)
+                            continue;
+
+                        TitleEntry t;
+                        t.titleId = 0;
+                        t.filePath = subFullPath;
+                        t.label = displayLabel;
+                        t.name = displayLabel;
+                        t.folder = displayLabel;
+                        t.iconPath = resolveGameIcon(platform, displayLabel, subFullPath);
+
+                        char m[256];
+                        snprintf(m, sizeof(m), "Tico: found %s save: %s (size %ld, icon: %s)", platform.c_str(),
+                                 subFullPath.c_str(), (long)subSt.st_size, t.iconPath.c_str());
+                        logInfoToFile(m);
+
+                        user.titles.push_back(std::move(t));
+                    }
+                    closedir(subD);
+                }
+                continue;
+            }
+
+            if (!S_ISREG(st.st_mode))
+                continue;
+
+            bool isSave = false;
+            std::string rawLabel = name;
+
+            if (name == "main")
+            {
+                isSave = true;
+                size_t pSlash = dir.find_last_of('/');
+                rawLabel = (pSlash != std::string::npos) ? dir.substr(pSlash + 1) : "3DS Save";
+            }
+            else if (name.size() > 4)
+            {
+                std::string ext = name.substr(name.size() - 4);
+                if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv")
+                {
+                    isSave = true;
+                    rawLabel = name.substr(0, name.size() - 4);
+                }
+                else if (is3DS && (ext == ".bin" || ext == ".BIN"))
+                {
+                    isSave = true;
+                    rawLabel = name.substr(0, name.size() - 4);
+                }
+            }
+
+            if (!isSave)
+                continue;
+
+            std::string displayLabel = formatCleanLabel(rawLabel);
+            if (!isPokemonGame(displayLabel) && !isPokemonGame(rawLabel))
+                continue;
+
+            bool duplicate = false;
+            for (const auto &existing : user.titles)
+            {
+                if (existing.filePath == fullPath || existing.label == displayLabel)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate)
+                continue;
+
+            TitleEntry t;
+            t.titleId = 0;
+            t.filePath = fullPath;
+            t.label = displayLabel;
+            t.name = displayLabel;
+            t.folder = displayLabel;
+            t.iconPath = resolveGameIcon(platform, displayLabel, fullPath);
+
+            char m[256];
+            snprintf(m, sizeof(m), "Tico: found %s save: %s (size %ld, icon: %s)", platform.c_str(), fullPath.c_str(),
+                     (long)st.st_size, t.iconPath.c_str());
+            logInfoToFile(m);
+
+            user.titles.push_back(std::move(t));
+        }
+        closedir(d);
+    }
+
+    void SaveSelectScreen::loadTicoSaves()
+    {
+        UserEntry tico;
+        tico.name = "Tico Emulator";
+        memset(&tico.accountUid, 0xFF, sizeof(AccountUid)); // sentinel UID (0xFF...FF)
+
+        // 1. Scan standard Tico save directories
+        scanTicoDir(tico, "sdmc:/tico/saves/gba", "GBA");
+        scanTicoDir(tico, "sdmc:/tico/saves/gbc", "GBC");
+        scanTicoDir(tico, "sdmc:/tico/saves/nds", "NDS");
+        scanTicoDir(tico, "sdmc:/tico/saves/3ds", "3DS");
+
+        // 2. Scan Tico ROM directories
+        scanTicoDir(tico, "sdmc:/tico/roms/gba", "GBA");
+        scanTicoDir(tico, "sdmc:/tico/roms/gbc", "GBC");
+        scanTicoDir(tico, "sdmc:/tico/roms/nds", "NDS");
+        scanTicoDir(tico, "sdmc:/tico/roms/3ds", "3DS");
+
+        // 3. Scan RetroArch NDS ROMs & Standalone melonDS directories
+        scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS", "NDS");
+        scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS/melonDS", "NDS");
+        scanTicoDir(tico, "sdmc:/retroarch/cores/savefiles/melonDS", "NDS");
+
+        // 4. Scan Azahar / Citra 3DS simulated SD card saves
+        scanCitraDir(tico, "sdmc:/tico/system/3ds/sdmc/Nintendo 3DS");
+
+        // 5. Scan PKSE Tico working/saved folders
+        scanTicoDir(tico, "sdmc:/PKSE/Tico", "Emu");
+
+        if (!tico.titles.empty())
+        {
+            char m[128];
+            snprintf(m, sizeof(m), "Tico: %d emulator saves found", (int)tico.titles.size());
+            logInfoToFile(m);
+
+            if (users.size() == 1 && users[0].titles.empty())
+            {
+                users.clear();
+            }
+            users.push_back(std::move(tico));
+        }
+    }
 }
+

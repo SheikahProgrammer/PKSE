@@ -5,6 +5,8 @@
 #include "Trainer/Trainer7USUM.h"
 #include "Trainer/Inventory7USUM.h"
 #include "Encryption/Encryption7USUM.h"
+#include "Pokemon/FormInfo.h"
+#include "Names/MoveInfo.h"
 #include "Utils/CRC16.h"
 #include "Utils/Utf16Text.h"
 #include "Utils/HelperUtilities.h"
@@ -318,10 +320,37 @@ namespace Trainer
         {
             if (!party[partySlotIndex] || party[partySlotIndex]->speciesID() == 0)
                 continue;
-            party[partySlotIndex]->refreshChecksum();
+
+            auto &pk = party[partySlotIndex];
+            if (pk->encryptionConstant() == 0)
+            {
+                uint32_t newEc = Utils::rand32();
+                if (newEc == 0) newEc = 1;
+                newEc = ::Pokemon::correctEncryptionConstantForForm(pk->speciesID(), pk->form(), newEc);
+                pk->setEncryptionConstant(newEc);
+            }
+            if (pk->pid() == 0)
+            {
+                uint32_t newPid = Utils::rand32();
+                if (newPid == 0) newPid = 1;
+                pk->setPID(newPid);
+            }
+            if (pk->statHPCurrent() == 0)
+            {
+                pk->setStatHPCurrent(pk->statHPMax());
+            }
+            for (int m = 0; m < 4; ++m)
+            {
+                if (pk->move(m) != 0 && pk->movePP(m) == 0)
+                {
+                    pk->setMovePP(m, Names::getMoveBasePP(pk->move(m), getGameGroup()));
+                }
+            }
+            pk->refreshChecksum();
+
             // Staged through a party-length buffer -- see Trainer7USUM::makeEntity.
             std::vector<std::byte> rec(recordSize, std::byte{0});
-            const auto srcData = party[partySlotIndex]->getData();
+            const auto srcData = pk->getData();
             std::memcpy(rec.data(), srcData.data(), std::min(rec.size(), srcData.size()));
             std::byte *encryptedRecord = Encryption::encryptArray7USUM(rec);
             std::memcpy(bytes + written * recordSize, encryptedRecord, recordSize);
@@ -343,11 +372,28 @@ namespace Trainer
             {
                 uint8_t *offset = b + (box * BOX_SLOTS + slotIndex) * recordSize;
                 auto &pokemon = boxes[box][slotIndex];
-                if (pokemon)
+                if (pokemon && pokemon->speciesID() != 0)
                 {
-                    // Empty slots go through here too. Re-encrypting the record we read back is
-                    // a bijection given its encryption constant, so an untouched slot reproduces
-                    // its own bytes -- whatever blank this game happens to use.
+                    if (pokemon->encryptionConstant() == 0)
+                    {
+                        uint32_t newEc = Utils::rand32();
+                        if (newEc == 0) newEc = 1;
+                        newEc = ::Pokemon::correctEncryptionConstantForForm(pokemon->speciesID(), pokemon->form(), newEc);
+                        pokemon->setEncryptionConstant(newEc);
+                    }
+                    if (pokemon->pid() == 0)
+                    {
+                        uint32_t newPid = Utils::rand32();
+                        if (newPid == 0) newPid = 1;
+                        pokemon->setPID(newPid);
+                    }
+                    for (int m = 0; m < 4; ++m)
+                    {
+                        if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                        {
+                            pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), getGameGroup()));
+                        }
+                    }
                     pokemon->refreshChecksum();
                     // Only the STORED half goes to a box slot; a party-size entity's tail (level,
                     // battle stats) is exactly what a box record does not carry.

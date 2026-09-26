@@ -44,6 +44,8 @@
 #include "Encryption/Encryption8BDSP.h"
 #include "Encryption/Encryption3FRLG.h"
 #include "Encryption/Encryption3RSE.h"
+#include "Names/MoveInfo.h"
+#include "Pokemon/FormInfo.h"
 #include "Utils/FileUtilities.h"
 #include "Utils/HelperUtilities.h"
 #include "Utils/Logger.h"
@@ -509,6 +511,42 @@ namespace Trainer
                 const uint32_t bankTag = bankTagForEntity(*pokemon);
                 // unknown group -> can't tag it, skip
                 if (bankTag == BTAG_EMPTY) continue;
+
+                // Defensive hardening against Bad Eggs in Bank storage
+                const bool hasEC = (gameVersion == GameVersion::XY || gameVersion == GameVersion::ORAS ||
+                                    gameVersion == GameVersion::SM || gameVersion == GameVersion::USUM ||
+                                    gameVersion == GameVersion::GG || gameVersion == GameVersion::SWSH ||
+                                    gameVersion == GameVersion::BDSP || gameVersion == GameVersion::PLA ||
+                                    gameVersion == GameVersion::SV || gameVersion == GameVersion::ZA);
+                const bool isG6orG7 = (gameVersion == GameVersion::XY || gameVersion == GameVersion::ORAS ||
+                                       gameVersion == GameVersion::SM || gameVersion == GameVersion::USUM);
+                if (hasEC)
+                {
+                    if (pokemon->encryptionConstant() == 0)
+                    {
+                        uint32_t newEc = Utils::rand32();
+                        if (newEc == 0) newEc = 1;
+                        if (isG6orG7)
+                        {
+                            newEc = ::Pokemon::correctEncryptionConstantForForm(pokemon->speciesID(), pokemon->form(), newEc);
+                        }
+                        pokemon->setEncryptionConstant(newEc);
+                    }
+                }
+                if (pokemon->pid() == 0 && gameVersion != GameVersion::RBY && gameVersion != GameVersion::GSC)
+                {
+                    uint32_t newPid = Utils::rand32();
+                    if (newPid == 0) newPid = 1;
+                    pokemon->setPID(newPid);
+                }
+                for (int m = 0; m < 4; ++m)
+                {
+                    if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                    {
+                        pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), gameVersion));
+                    }
+                }
+                pokemon->refreshChecksum();
 
                 const size_t recOff = HEADER_SIZE + (box * BANK_SLOTS_PER_BOX + slot) * recSize;
                 putU32LE(&buffer[recOff], bankTag);

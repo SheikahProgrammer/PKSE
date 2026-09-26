@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "Trainer/Trainer3FRLG.h"
+#include "Names/MoveInfo.h"
 #include "Utils/Gen3Text.h" // the Gen 3 character set, shared with Pokemon3FRLG + Convert
 #include "Utils/HelperUtilities.h"
 #include "Utils/Logger.h"
@@ -545,8 +546,27 @@ namespace Trainer
             const size_t logical = 0x038 + partySlotIndex * 100;
             if (partySlotIndex < party.size() && party[partySlotIndex] && party[partySlotIndex]->speciesID() != 0)
             {
+                auto &pk = party[partySlotIndex];
+                if (pk->pid() == 0)
+                {
+                    uint32_t newPid = Utils::rand32();
+                    if (newPid == 0) newPid = 1;
+                    pk->setPID(newPid);
+                }
+                if (pk->statHPCurrent() == 0)
+                {
+                    pk->setStatHPCurrent(pk->statHPMax());
+                }
+                for (int m = 0; m < 4; ++m)
+                {
+                    if (pk->move(m) != 0 && pk->movePP(m) == 0)
+                    {
+                        pk->setMovePP(m, Names::getMoveBasePP(pk->move(m), getGameGroup()));
+                    }
+                }
+                pk->refreshChecksum();
                 uint8_t recordBytes[100];
-                buildPartyRecord(*party[partySlotIndex], recordBytes);
+                buildPartyRecord(*pk, recordBytes);
                 writeBlock(LARGE_ID, logical, recordBytes, 100);
             }
             else
@@ -572,10 +592,25 @@ namespace Trainer
             {
                 const size_t index = fRLG_BOXIndex * FRLG_BOX_SLOTS + slotIndex;
                 const size_t logical = 0x0004 + index * 80;
-                if (boxes[fRLG_BOXIndex][slotIndex] && boxes[fRLG_BOXIndex][slotIndex]->speciesID() != 0)
+                auto &pokemon = boxes[fRLG_BOXIndex][slotIndex];
+                if (pokemon && pokemon->speciesID() != 0)
                 {
+                    if (pokemon->pid() == 0)
+                    {
+                        uint32_t newPid = Utils::rand32();
+                        if (newPid == 0) newPid = 1;
+                        pokemon->setPID(newPid);
+                    }
+                    for (int m = 0; m < 4; ++m)
+                    {
+                        if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                        {
+                            pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), getGameGroup()));
+                        }
+                    }
+                    pokemon->refreshChecksum();
                     uint8_t recordBytes[80];
-                    buildBoxRecord(*boxes[fRLG_BOXIndex][slotIndex], recordBytes);
+                    buildBoxRecord(*pokemon, recordBytes);
                     writeBlock(STORAGE_ID, logical, recordBytes, 80);
                 }
                 else
@@ -659,4 +694,18 @@ namespace Trainer
             writeUInt16LittleEndian(&saveData[byteOffset + 0xFF6], sectorChecksum);
         }
     }
+
+    const std::vector<uint8_t> &Trainer3FRLG::serialize()
+    {
+        updateItemBlock();
+        updateBoxBlock();
+        updateBoxNameBlock();
+        updateCurrentBoxBlock();
+        updatePartyBlock();
+        updatePokedexBlock();
+        updateTrainerInfoBlock();
+        finalizeChecksums();
+        return saveData;
+    }
 }
+

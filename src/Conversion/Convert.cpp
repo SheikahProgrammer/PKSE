@@ -18,6 +18,13 @@
 #include "Pokemon/Pokemon3RSE.h"      // PK3 entity (species conversion: SpeciesConverter3.h)
 #include "Pokemon/Pokemon1RBY.h"       // PK1 -- Poke Transporter reads it through its own accessors
 #include "Pokemon/Pokemon2GSC.h"       // PK2 -- same
+#include "Pokemon/Pokemon4DP.h"
+#include "Pokemon/Pokemon4PT.h"
+#include "Pokemon/Pokemon4HGSS.h"
+#include "Pokemon/Pokemon5BW.h"
+#include "Pokemon/Pokemon5B2W2.h"
+#include "Pokemon/Pokemon6XY.h"
+#include "Pokemon/Pokemon6ORAS.h"
 #include "Pokemon/PersonalInfo7USUM.h" // Gen 7's own growth/friendship/abilities -- the Transporter landing point
 #include "Pokemon/SpeciesConverter9.h" // gen9InternalToNational / gen9NationalToInternal (PK9/PA9 species field)
 #include "Pokemon/PersonalInfoTable.h"
@@ -34,6 +41,13 @@
 #include "Encryption/Encryption9LZA.h"
 #include "Encryption/Encryption3FRLG.h"
 #include "Encryption/Encryption3RSE.h"
+#include "Encryption/Encryption4DP.h"
+#include "Encryption/Encryption4PT.h"
+#include "Encryption/Encryption4HGSS.h"
+#include "Encryption/Encryption5BW.h"
+#include "Encryption/Encryption5B2W2.h"
+#include "Encryption/Encryption6XY.h"
+#include "Encryption/Encryption6ORAS.h"
 #include "Enums/Ball.h"            // maxBallForGroup -> the destination format's ball ceiling
 #include "Pokemon/EvolutionTable.h" // getPreEvolutionChain -- a Wartortle is a caught Squirtle
 #include "Legality/EncounterTable.h" // a Gen 3 landing spot comes from a REAL encounter
@@ -96,12 +110,26 @@ namespace Conversion
                 return std::make_unique<Pokemon::Pokemon3FRLG>(record);
             case GameVersion::RSE:
                 return std::make_unique<Pokemon::Pokemon3RSE>(record);
+            case GameVersion::DP:
+                return std::make_unique<Pokemon::Pokemon4DP>(record);
+            case GameVersion::PT:
+                return std::make_unique<Pokemon::Pokemon4PT>(record);
+            case GameVersion::HGSS:
+                return std::make_unique<Pokemon::Pokemon4HGSS>(record);
+            case GameVersion::BW:
+                return std::make_unique<Pokemon::Pokemon5BW>(record);
+            case GameVersion::B2W2:
+                return std::make_unique<Pokemon::Pokemon5B2W2>(record);
+            case GameVersion::XY:
+                return std::make_unique<Pokemon::Pokemon6XY>(record);
+            case GameVersion::ORAS:
+                return std::make_unique<Pokemon::Pokemon6ORAS>(record);
             default:
                 return nullptr;
             }
         }
 
-        // Encrypt a decrypted buffer with the destination format's crypto (all four use Encrypt8).
+        // Encrypt a decrypted buffer with the destination format's crypto.
         std::byte *encryptFor(GameVersion gameVersion, std::span<const std::byte> decryptedRecord,
                               uint32_t encryptionConstant)
         {
@@ -127,6 +155,20 @@ namespace Conversion
                 return Encryption::encryptArray3FRLG(decryptedRecord); // Gen 3 keys off the in-buffer PID
             case GameVersion::RSE:
                 return Encryption::encryptArray3RSE(decryptedRecord); // one crypt for all five GBA games
+            case GameVersion::DP:
+                return Encryption::encryptArray4DP(decryptedRecord);
+            case GameVersion::PT:
+                return Encryption::encryptArray4PT(decryptedRecord);
+            case GameVersion::HGSS:
+                return Encryption::encryptArray4HGSS(decryptedRecord);
+            case GameVersion::BW:
+                return Encryption::encryptArray5BW(decryptedRecord);
+            case GameVersion::B2W2:
+                return Encryption::encryptArray5B2W2(decryptedRecord);
+            case GameVersion::XY:
+                return Encryption::encryptArray6XY(decryptedRecord, encryptionConstant);
+            case GameVersion::ORAS:
+                return Encryption::encryptArray6ORAS(decryptedRecord, encryptionConstant);
             default:
                 return nullptr;
             }
@@ -173,6 +215,21 @@ namespace Conversion
             return gameVersion == GameVersion::SM || gameVersion == GameVersion::USUM;
         }
 
+        inline bool isG6(GameVersion gameVersion)
+        {
+            return gameVersion == GameVersion::XY || gameVersion == GameVersion::ORAS;
+        }
+
+        inline bool isG5(GameVersion gameVersion)
+        {
+            return gameVersion == GameVersion::BW || gameVersion == GameVersion::B2W2;
+        }
+
+        inline bool isG4(GameVersion gameVersion)
+        {
+            return gameVersion == GameVersion::DP || gameVersion == GameVersion::PT || gameVersion == GameVersion::HGSS;
+        }
+
         // Red/Blue/Yellow and Gold/Silver/Crystal. These are a SOURCE and never a destination:
         // nothing has ever moved a Pokemon back into a Game Boy game, and a PK1 has no room for
         // the fields a modern one carries. See gate().
@@ -199,15 +256,11 @@ namespace Conversion
             if (from == destination)
                 return Result::SameGroup;
 
-            // Every mainline pairing PKSE can express. All conversions normalize through the PK8
-            // layout: same-generation siblings (SwSh<->BDSP, S/V<->Z-A, SM<->USUM) share it; PK9 reaches it
-            // via transformG9toG8; Legends: Arceus (PA8), Let's Go (PB7), Sun/Moon (PK7) and Gen 3
-            // (PK3) reach it via their remaps. Full two-way for all of them -- deliberately beyond
-            // HOME's one-way Let's Go limit; the dex-presence check below is the only species gate
-            // (LGPE = Kanto + Meltan/Melmetal + Alolan forms).
+            // Every mainline pairing PKSE can express.
             auto inFamily = [](GameVersion gameVersion)
             {
-                return isG8(gameVersion) || isG9(gameVersion) || isG7(gameVersion) || gameVersion == GameVersion::PLA ||
+                return isG8(gameVersion) || isG9(gameVersion) || isG7(gameVersion) || isG6(gameVersion) ||
+                       isG5(gameVersion) || isG4(gameVersion) || gameVersion == GameVersion::PLA ||
                        gameVersion == GameVersion::GG || isGen3Group(gameVersion);
             };
             // Gen 1 and Gen 2 join the family ONE WAY. They leave through Poke Transporter, which
@@ -260,6 +313,21 @@ namespace Conversion
                 if (species == 0 || species > maxSpeciesG7(destination))
                     return Result::NotInDex;
                 if (form != 0 && form >= Pokemon::getPersonalInfo7USUM(species, 0).formCount)
+                    return Result::NotInDex;
+            }
+            else if (isG6(destination))
+            {
+                if (species == 0 || species > 721)
+                    return Result::NotInDex;
+            }
+            else if (isG5(destination))
+            {
+                if (species == 0 || species > 649)
+                    return Result::NotInDex;
+            }
+            else if (isG4(destination))
+            {
+                if (species == 0 || species > 493)
                     return Result::NotInDex;
             }
             else if ((pi.presence & presenceBit(destination)) == 0)
@@ -1981,6 +2049,22 @@ namespace Conversion
             // Alpha (PA9) / alignment (PK9)
             if (0x23 < buffer.size()) buffer[0x23] = std::byte{0};
         }
+        else if (isG6(layoutFrom) && isG6(destGroup))
+        {
+            // XY <-> ORAS: the same PK6 layout byte for byte
+        }
+        else if (isG5(layoutFrom) && isG5(destGroup))
+        {
+            // BW <-> B2W2: the same PK5 layout byte for byte
+        }
+        else if (isG4(layoutFrom) && isG4(destGroup))
+        {
+            // DP <-> PT <-> HGSS: the same PK4 layout byte for byte
+        }
+        else if (isGen3Group(layoutFrom) && isGen3Group(destGroup))
+        {
+            // FRLG <-> RSE: the same PK3 layout byte for byte
+        }
         else
         {
             viaHub = true;
@@ -2201,6 +2285,35 @@ namespace Conversion
         // or Let's Go therefore displayed a ribbon it does not own. The same 0 also rides across a
         // Gen 8 <-> Gen 9 hop unchanged, so a pokemon banked before the creator was fixed keeps it.
         normalizeAffixedRibbon(*out);
+
+        // Anti-Bad-Egg defensive check: ensure non-zero PID, non-zero EC, non-zero HP, and valid move PP
+        if (out->speciesID() != 0)
+        {
+            if (out->encryptionConstant() == 0)
+            {
+                uint32_t ec = Utils::rand32();
+                if (ec == 0) ec = 1;
+                ec = Pokemon::correctEncryptionConstantForForm(out->speciesID(), out->form(), ec);
+                out->setEncryptionConstant(ec);
+            }
+            if (out->pid() == 0)
+            {
+                uint32_t p = Utils::rand32();
+                if (p == 0) p = 1;
+                out->setPID(p);
+            }
+            if (out->statHPCurrent() == 0)
+            {
+                out->setStatHPCurrent(out->statHPMax());
+            }
+            for (int m = 0; m < 4; ++m)
+            {
+                if (out->move(m) != 0 && out->movePP(m) == 0)
+                {
+                    out->setMovePP(m, Names::getMoveBasePP(out->move(m), out->getGameGroup()));
+                }
+            }
+        }
 
         out->refreshChecksum(); // stored bytes changed -> recompute the entity checksum
         result = Result::Ok;

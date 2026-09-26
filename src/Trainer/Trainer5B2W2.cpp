@@ -5,6 +5,7 @@
 #include "Trainer/Trainer5B2W2.h"
 #include "Trainer/Inventory5B2W2.h"
 #include "Encryption/Encryption5B2W2.h"
+#include "Names/MoveInfo.h"
 #include "Utils/CRC16.h"
 #include "Utils/Utf16Text.h"
 #include "Utils/HelperUtilities.h"
@@ -208,6 +209,25 @@ namespace Trainer
         {
             if (!party[partySlotIndex] || party[partySlotIndex]->speciesID() == 0)
                 continue;
+
+            auto &pk = party[partySlotIndex];
+            if (pk->pid() == 0)
+            {
+                uint32_t newPid = Utils::rand32();
+                if (newPid == 0) newPid = 1;
+                pk->setPID(newPid);
+            }
+            if (pk->statHPCurrent() == 0)
+            {
+                pk->setStatHPCurrent(pk->statHPMax());
+            }
+            for (int m = 0; m < 4; ++m)
+            {
+                if (pk->move(m) != 0 && pk->movePP(m) == 0)
+                {
+                    pk->setMovePP(m, Names::getMoveBasePP(pk->move(m), getGameGroup()));
+                }
+            }
             party[partySlotIndex]->refreshChecksum(); // the checksum IS the crypt key -- before, never after
             // Staged through a party-length buffer -- see Trainer4::updatePartyBlock.
             std::vector<std::byte> rec(Encryption::SIZE_PARTY5_B2W2, std::byte{0});
@@ -239,6 +259,19 @@ namespace Trainer
                 auto &pokemon = boxes[boxIndex][slotIndex];
                 if (pokemon && pokemon->speciesID() != 0)
                 {
+                    if (pokemon->pid() == 0)
+                    {
+                        uint32_t newPid = Utils::rand32();
+                        if (newPid == 0) newPid = 1;
+                        pokemon->setPID(newPid);
+                    }
+                    for (int m = 0; m < 4; ++m)
+                    {
+                        if (pokemon->move(m) != 0 && pokemon->movePP(m) == 0)
+                        {
+                            pokemon->setMovePP(m, Names::getMoveBasePP(pokemon->move(m), getGameGroup()));
+                        }
+                    }
                     pokemon->refreshChecksum();
                     // Only the STORED half goes to a box slot.
                     std::vector<std::byte> rec(Encryption::SIZE_STORED5_B2W2, std::byte{0});

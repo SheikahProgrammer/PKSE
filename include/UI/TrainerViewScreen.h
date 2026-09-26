@@ -46,9 +46,10 @@ namespace UI
             Party,
             Boxes,
             Items,
-            Storage, // HOME-style dual-pane: save boxes (left) <-> bank (right)
-            Trainer, // trainer info card (reached from the HOME main menu)
-            Settings // settings screen (auto-backup + theme)
+            Storage,     // HOME-style dual-pane: save boxes (left) <-> bank (right)
+            MysteryGift, // offline mystery gift & event gallery injector
+            Trainer,     // trainer info card (reached from the HOME main menu)
+            Settings     // settings screen (auto-backup + theme)
         };
 
         // Cursor modes for the Storage view (cycled with Y). Colors: red / blue / green -- the same
@@ -172,11 +173,21 @@ namespace UI
         int selectedItemIndex = 0;     // Selected item/pokemon index in detail view (item for Items, slot for Boxes)
 
         // HOME main menu focus (shown when NOT entered). 0 Pokemon(Boxes), 1 Party, 2 Storage (pills); 3
-        // Items, 4 Trainer, 5 Settings (circular icons).
+        // Items, 4 Events, 5 Trainer, 6 Settings (circular icons).
         int homeMenuIndex = 0;
 
         // Selected row in the Settings view (0-4); reached from the menu's Settings icon.
         int settingsSelectedRow = 0;
+
+        // Mystery Gift & Events injector view
+        int eventSelectedIndex = 0;
+        int eventScrollOffset = 0;
+        bool eventFilterCurrentGame = true;
+        std::string eventSearchQuery = "";
+        std::vector<size_t> filteredEvents;
+        void refreshEventList();
+        void handleMysteryGiftInput(u64 buttonsDown, const TouchInput &touch);
+        void receiveEvent(size_t eventIndex, int targetDestination); // 0 = Box, 1 = Party, 2 = Bank
 
         // Trainer info view: the focused editable row (0 Name, 1 Money) and a
         // one-frame-deferred edit request. Name/Money open the blocking swkbd; deferring one frame lets

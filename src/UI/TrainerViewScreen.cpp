@@ -28,6 +28,8 @@
 #include "UI/Panels/ItemsPanel.h"
 #include "UI/Panels/StoragePanel.h"
 #include "UI/Panels/HomeMenuPanel.h"
+#include "UI/Panels/EventGalleryPanel.h"
+#include "Events/EventDatabase.h"
 #include "UI/Dialogs/ItemEditDialog.h"
 #include "UI/Dialogs/SaveConfirmDialog.h"
 #include "UI/Dialogs/StatEditDialog.h"
@@ -2220,6 +2222,296 @@ namespace UI
         trainer.money = newMoney;
         hasUnsavedChanges = true;
         postStatus("Money set to $" + std::to_string(newMoney) + ".", 150);
+    }
+
+    void TrainerViewScreen::refreshEventList()
+    {
+        auto &db = Events::EventDatabase::getInstance();
+        if (!db.isLoaded())
+        {
+            db.load();
+        }
+        filteredEvents = db.filter(trainer.getGameGroup(), eventSearchQuery, eventFilterCurrentGame);
+        if (eventSelectedIndex >= static_cast<int>(filteredEvents.size()))
+        {
+            eventSelectedIndex = std::max(0, static_cast<int>(filteredEvents.size()) - 1);
+        }
+    }
+
+    void TrainerViewScreen::receiveEvent(size_t eventIndex, int targetDestination)
+    {
+        auto &db = Events::EventDatabase::getInstance();
+        const auto *rec = db.getEvent(eventIndex);
+        if (!rec)
+        {
+            postStatus("Event record not found.", 180);
+            return;
+        }
+
+        const bool compat = Events::EventDatabase::isCompatibleWithGame(*rec, trainer.getGameGroup());
+
+        if (targetDestination == 1) // Party
+        {
+            if (!compat)
+            {
+                postStatus("Cannot receive into Party: event not compatible with this game!", 240);
+                return;
+            }
+            if (trainer.party.size() >= 6)
+            {
+                postStatus("Party is full (6/6)!", 240);
+                return;
+            }
+            auto pk = db.instantiate(*rec, trainer);
+            if (!pk)
+            {
+                postStatus("Failed to create Pokemon entity.", 240);
+                return;
+            }
+            trainer.party.push_back(std::move(pk));
+            hasUnsavedChanges = true;
+            postStatus("Received " + std::string(rec->title) + " into Party!", 240);
+            return;
+        }
+
+        if (targetDestination == 0) // Box
+        {
+            if (!compat)
+            {
+                receiveEvent(eventIndex, 2); // redirect incompatible events to Bank
+                return;
+            }
+
+            int targetBox = selectedBoxIndex;
+            int targetSlot = -1;
+
+            if (targetBox >= 0 && targetBox < static_cast<int>(trainer.boxes.size()))
+            {
+                for (size_t s = 0; s < trainer.boxes[targetBox].size(); ++s)
+                {
+                    if (!trainer.boxes[targetBox][s] || trainer.boxes[targetBox][s]->speciesID() == 0)
+                    {
+                        targetSlot = static_cast<int>(s);
+                        break;
+                    }
+                }
+            }
+
+            if (targetSlot == -1)
+            {
+                for (size_t b = 0; b < trainer.boxes.size(); ++b)
+                {
+                    for (size_t s = 0; s < trainer.boxes[b].size(); ++s)
+                    {
+                        if (!trainer.boxes[b][s] || trainer.boxes[b][s]->speciesID() == 0)
+                        {
+                            targetBox = static_cast<int>(b);
+                            targetSlot = static_cast<int>(s);
+                            break;
+                        }
+                    }
+                    if (targetSlot != -1) break;
+                }
+            }
+
+            if (targetSlot == -1)
+            {
+                postStatus("All boxes are completely full!", 240);
+                return;
+            }
+
+            auto pk = db.instantiate(*rec, trainer);
+            if (!pk)
+            {
+                postStatus("Failed to create Pokemon entity.", 240);
+                return;
+            }
+
+            trainer.boxes[targetBox][targetSlot] = std::move(pk);
+            hasUnsavedChanges = true;
+            std::string boxName = (targetBox < static_cast<int>(trainer.boxNames.size()))
+                                      ? trainer.boxNames[targetBox]
+                                      : ("Box " + std::to_string(targetBox + 1));
+            postStatus("Received " + std::string(rec->title) + " into " + boxName + "!", 240);
+            return;
+        }
+
+        if (targetDestination == 2) // Bank
+        {
+            if (!bank)
+            {
+                postStatus("Bank storage not available.", 240);
+                return;
+            }
+
+            int targetBox = -1;
+            int targetSlot = -1;
+
+            for (size_t b = 0; b < bank->boxes.size(); ++b)
+            {
+                for (size_t s = 0; s < bank->boxes[b].size(); ++s)
+                {
+                    if (!bank->boxes[b][s] || bank->boxes[b][s]->speciesID() == 0)
+                    {
+                        targetBox = static_cast<int>(b);
+                        targetSlot = static_cast<int>(s);
+                        break;
+                    }
+                }
+                if (targetSlot != -1) break;
+            }
+
+            if (targetSlot == -1)
+            {
+                postStatus("Bank storage is completely full!", 240);
+                return;
+            }
+
+            auto pk = db.instantiateNative(*rec);
+            if (!pk)
+            {
+                postStatus("Failed to create native Pokemon entity.", 240);
+                return;
+            }
+
+            bank->boxes[targetBox][targetSlot] = std::move(pk);
+            bank->save();
+            postStatus("Received " + std::string(rec->title) + " into Bank " + std::to_string(targetBox + 1) + "!", 240);
+            return;
+        }
+    }
+
+    void TrainerViewScreen::handleMysteryGiftInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        const int totalCount = static_cast<int>(filteredEvents.size());
+
+        if (buttonsDown & HidNpadButton_B)
+        {
+            detailViewActive = false;
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_Up)
+        {
+            if (eventSelectedIndex > 0)
+            {
+                eventSelectedIndex--;
+            }
+            else if (totalCount > 0)
+            {
+                eventSelectedIndex = totalCount - 1;
+            }
+        }
+        if (buttonsDown & HidNpadButton_Down)
+        {
+            if (eventSelectedIndex + 1 < totalCount)
+            {
+                eventSelectedIndex++;
+            }
+            else
+            {
+                eventSelectedIndex = 0;
+            }
+        }
+
+        if (buttonsDown & HidNpadButton_L)
+        {
+            eventSelectedIndex = std::max(0, eventSelectedIndex - 7);
+        }
+        if (buttonsDown & HidNpadButton_R)
+        {
+            eventSelectedIndex = std::min(std::max(0, totalCount - 1), eventSelectedIndex + 7);
+        }
+
+        if (buttonsDown & HidNpadButton_ZL)
+        {
+            eventSelectedIndex = std::max(0, eventSelectedIndex - 25);
+        }
+        if (buttonsDown & HidNpadButton_ZR)
+        {
+            eventSelectedIndex = std::min(std::max(0, totalCount - 1), eventSelectedIndex + 25);
+        }
+
+        if (buttonsDown & HidNpadButton_Y)
+        {
+            eventFilterCurrentGame = !eventFilterCurrentGame;
+            eventSelectedIndex = 0;
+            eventScrollOffset = 0;
+            refreshEventList();
+        }
+
+        if (buttonsDown & HidNpadButton_X)
+        {
+            const Utils::KeyboardResult promptResult =
+                Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
+            if (promptResult.accepted)
+            {
+                eventSearchQuery = promptResult.text;
+                eventSelectedIndex = 0;
+                eventScrollOffset = 0;
+                refreshEventList();
+            }
+        }
+
+        const int hitId = touchedButtonId(touch);
+        if (hitId >= 3000 && hitId < 3000 + totalCount)
+        {
+            eventSelectedIndex = hitId - 3000;
+        }
+        else if (hitId == 2001)
+        {
+            eventFilterCurrentGame = !eventFilterCurrentGame;
+            eventSelectedIndex = 0;
+            eventScrollOffset = 0;
+            refreshEventList();
+        }
+        else if (hitId == 2002)
+        {
+            const Utils::KeyboardResult promptResult =
+                Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
+            if (promptResult.accepted)
+            {
+                eventSearchQuery = promptResult.text;
+                eventSelectedIndex = 0;
+                eventScrollOffset = 0;
+                refreshEventList();
+            }
+        }
+        else if (hitId == 1001)
+        {
+            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+            {
+                receiveEvent(filteredEvents[eventSelectedIndex], 0);
+            }
+        }
+        else if (hitId == 1002)
+        {
+            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+            {
+                receiveEvent(filteredEvents[eventSelectedIndex], 1);
+            }
+        }
+        else if (hitId == 1003)
+        {
+            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+            {
+                receiveEvent(filteredEvents[eventSelectedIndex], 2);
+            }
+        }
+
+        if (buttonsDown & HidNpadButton_A)
+        {
+            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+            {
+                auto &db = Events::EventDatabase::getInstance();
+                const auto *rec = db.getEvent(filteredEvents[eventSelectedIndex]);
+                if (rec)
+                {
+                    bool compat = Events::EventDatabase::isCompatibleWithGame(*rec, trainer.getGameGroup());
+                    receiveEvent(filteredEvents[eventSelectedIndex], compat ? 0 : 2);
+                }
+            }
+        }
     }
 
     // NOTE: there was once a scanForDlcContent() here, warning at save time when a save held
@@ -6453,6 +6745,11 @@ namespace UI
                 }
             }
 
+            if (selectedMode == ViewMode::MysteryGift)
+            {
+                handleMysteryGiftInput(buttonsDown, touch);
+            }
+
             // Settings view: Up/Down select a row, A toggles it. The row numbers are the shared
             // SETTINGS_ROW_* constants at the top of this file, so this handler and
             // drawSettingsView's labels/values/badges cannot name different rows.
@@ -6569,7 +6866,7 @@ namespace UI
         }
 
         // HOME main menu navigation. Pills (0 Pokemon, 1 Party, 2 Storage) are a vertical column;
-        // the icons (3 Items, 4 Trainer, 5 Settings) are a horizontal row below. Up/Down move the
+        // the icons (3 Items, 4 Events, 5 Trainer, 6 Settings) are a horizontal row below. Up/Down move the
         // column and step into/out of the row; Left/Right move within the row (matching the layout).
         if (buttonsDown & HidNpadButton_Up)
         {
@@ -6586,11 +6883,11 @@ namespace UI
             else if (homeMenuIndex == 2) homeMenuIndex = 3;
         }
         if (homeMenuIndex >= 3)
-        { // horizontal icon row
+        { // horizontal icon row (3 Items, 4 Events, 5 Trainer, 6 Settings)
             if (buttonsDown & HidNpadButton_Left)
-                homeMenuIndex = (homeMenuIndex == 3) ? 5 : homeMenuIndex - 1;
+                homeMenuIndex = (homeMenuIndex == 3) ? 6 : homeMenuIndex - 1;
             if (buttonsDown & HidNpadButton_Right)
-                homeMenuIndex = (homeMenuIndex == 5) ? 3 : homeMenuIndex + 1;
+                homeMenuIndex = (homeMenuIndex == 6) ? 3 : homeMenuIndex + 1;
             buttonsDown &=
                 ~(HidNpadButton_Left | HidNpadButton_Right); // consume L/R (don't also scroll the box preview)
         }
@@ -6610,16 +6907,19 @@ namespace UI
             selectedMode = ViewMode::Items;
             break;
         case 4:
-            selectedMode = ViewMode::Trainer;
+            selectedMode = ViewMode::MysteryGift;
             break;
         case 5:
+            selectedMode = ViewMode::Trainer;
+            break;
+        case 6:
             selectedMode = ViewMode::Settings;
             break;
         }
 
-        // Touch: tapping a menu pill/icon (ids 100-105) focuses it and acts like A.
+        // Touch: tapping a menu pill/icon (ids 100-106) focuses it and acts like A.
         int homeTap = touchedButtonId(touch);
-        if (homeTap >= 100 && homeTap <= 105)
+        if (homeTap >= 100 && homeTap <= 106)
         {
             homeMenuIndex = homeTap - 100;
             switch (homeMenuIndex)
@@ -6638,9 +6938,12 @@ namespace UI
                 selectedMode = ViewMode::Items;
                 break;
             case 4:
-                selectedMode = ViewMode::Trainer;
+                selectedMode = ViewMode::MysteryGift;
                 break;
             case 5:
+                selectedMode = ViewMode::Trainer;
+                break;
+            case 6:
                 selectedMode = ViewMode::Settings;
                 break;
             }
@@ -6678,10 +6981,14 @@ namespace UI
                 selectedItemIndex = 0;
                 currentPage = 0;
                 break;
-            case 4: // Trainer info
+            case 4: // Mystery Gift & Events
+                detailViewActive = true;
+                refreshEventList();
+                break;
+            case 5: // Trainer info
                 detailViewActive = true;
                 break;
-            case 5: // Settings screen (auto-backup + theme)
+            case 6: // Settings screen (auto-backup + theme)
                 detailViewActive = true;
                 settingsSelectedRow = 0;
                 break;
@@ -6875,6 +7182,9 @@ namespace UI
                 Panels::drawStorageView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth,
                                         CONTENT_PANEL_HEIGHT);
                 break;
+            case ViewMode::MysteryGift:
+                Panels::drawEventGallery(*this, framebuffer);
+                break;
             case ViewMode::Trainer:
                 drawTrainerView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth, CONTENT_PANEL_HEIGHT);
                 break;
@@ -7057,7 +7367,7 @@ namespace UI
         // overlay owns input). Drawing one here as well put two bars in the frame -- invisible,
         // because the second covered the first exactly, but wasted work and indistinguishable from
         // a real double-bar bug -- one nav bar per frame, always.
-        if (!details.active)
+        if (!details.active && !(detailViewActive && selectedMode == ViewMode::MysteryGift))
             drawNavBar(framebuffer, instructions);
         const int footerY = framebuffer.getHeight() - NAV_BAR_HEIGHT;
 

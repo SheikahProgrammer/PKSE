@@ -248,10 +248,12 @@ namespace Save
         }
         else if (isLooseSaveGroup(trainerGroup))
         {
-            // Gens 1, 2 and 4-7 ignore titleId / userUid / injectToTitle entirely: there is no
-            // installed title behind these saves. `backupDir` carries the FILE PATH the user
-            // opened.
-            passed = saveExternalSave(trainer, backupDir);
+            if (titleId == 0)
+                passed = saveExternalSave(trainer, backupDir);
+            else if (trainerGroup == GameVersion::FRLG)
+                passed = saveTrainerInfoFRLG(static_cast<Trainer3FRLG &>(trainer), backupDir, titleId, userUid, injectToTitle);
+            else
+                passed = saveExternalSave(trainer, backupDir);
         }
         else if (trainerGroup == GameVersion::BDSP)
         {
@@ -968,6 +970,7 @@ namespace Save
         case GameVersion::RBY:
         case GameVersion::GSC:
         case GameVersion::RSE:
+        case GameVersion::FRLG:
         case GameVersion::DP:
         case GameVersion::PT:
         case GameVersion::HGSS:
@@ -1017,12 +1020,8 @@ namespace Save
         const LooseFormat LOOSE_FORMATS[] = {
             {detectRBY, makeLoose<Trainer::Trainer1RBY>, GameVersion::RBY},
             {detectGSC, makeLoose<Trainer::Trainer2GSC>, GameVersion::GSC},
-            // Gen 3 goes here, between Gen 2 and Gen 4, because that is PKHeX's order. Only
-            // Ruby/Sapphire/Emerald are in the chain: FireRed/LeafGreen are a Switch title and
-            // always arrive with a title id, so there is no loose FR/LG row to be ordered against.
-            // Trainer3RSE::detect still refuses an FR/LG file outright rather than opening one with
-            // Hoenn's offsets -- the two share this container and only Small+0xAC tells them apart.
             {Trainer::Trainer3RSE::detect, makeLoose<Trainer::Trainer3RSE>, GameVersion::RSE},
+            {Trainer::Trainer3FRLG::detect, makeLoose<Trainer::Trainer3FRLG>, GameVersion::FRLG},
             {Trainer::Trainer4DP::detect, makeLoose<Trainer::Trainer4DP>, GameVersion::DP},
             {Trainer::Trainer4PT::detect, makeLoose<Trainer::Trainer4PT>, GameVersion::PT},
             {Trainer::Trainer4HGSS::detect, makeLoose<Trainer::Trainer4HGSS>, GameVersion::HGSS},
@@ -1114,6 +1113,10 @@ namespace Save
             const auto &hoenn = static_cast<const Trainer::Trainer3RSE &>(trainer);
             return hoenn.getGameVersion() == GameVersion::EM ? "Pokemon Emerald" : "Pokemon Ruby/Sapphire";
         }
+        if (gameVersion == GameVersion::FRLG)
+        {
+            return "Pokemon FireRed/LeafGreen";
+        }
         return "Pokemon " + std::string(getGameVersionName(gameVersion));
     }
 
@@ -1146,6 +1149,9 @@ namespace Save
             break;
         case GameVersion::RSE:
             raw = &static_cast<Trainer::Trainer3RSE &>(trainer).serialize();
+            break;
+        case GameVersion::FRLG:
+            raw = &static_cast<Trainer::Trainer3FRLG &>(trainer).serialize();
             break;
         case GameVersion::DP:
             raw = &static_cast<Trainer::Trainer4DP &>(trainer).serialize();
