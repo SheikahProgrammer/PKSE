@@ -23,6 +23,8 @@
 #include "Names/TypeNames.h"
 #include "Pokemon/PersonalInfoTable.h" // getPersonalInfo -> formCount (Form row/picker)
 #include "Names/MoveNames.h"
+#include "Names/MoveData.h"
+#include "Names/MoveInfo.h"
 #include "Names/LocationNames.h"
 #include "Names/RibbonNames.h"
 #include "Names/ItemNames.h"
@@ -1034,45 +1036,122 @@ namespace UI
             framebuffer.drawRoundedRect(rightColumnX, colY, Rw, colH, 16, Colors::Border, 1);
 
             // This panel is exclusively the moveset — 4 move slots (rows 10-13) + held item (row 14).
-            infoRowY = colY + 22;
+            infoRowY = colY + 20;
             framebuffer.drawText(rightColumnX + 18, infoRowY, "Moves", Colors::Text, TextStyle::Heading);
-            infoRowY += 46;
+
+            constexpr int slotH = 50;
+            constexpr int slotStep = 56;
+            const int slotX = rightColumnX + 14;
+            const int slotW = Rw - 28;
+
+            int currentSlotY = colY + 64;
             for (int moveIndex = 0; moveIndex < 4; ++moveIndex)
             {
                 const uint16_t moveId = p->move(moveIndex);
-                const bool scrollOffset = (selectedIndex == 10 + moveIndex);
-                if (scrollOffset)
+                const bool isSelected = (selectedIndex == 10 + moveIndex);
+                const int slotY = currentSlotY;
+
+                // Card background & selection border
+                if (isSelected)
                 {
-                    framebuffer.drawFilledRoundedRect(rightColumnX + 14, infoRowY - 8, Rw - 28, 38, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(rightColumnX + 14, infoRowY - 8, Rw - 28, 38, 10, Colors::Accent, 2);
+                    framebuffer.drawFilledRoundedRect(slotX, slotY, slotW, slotH, 10, Colors::Selected);
+                    framebuffer.drawRoundedRect(slotX, slotY, slotW, slotH, 10, Colors::Accent, 2);
                 }
-                const std::string moveName = moveId ? std::string(Names::getMoveName(moveId)) : std::string("-");
-                framebuffer.drawText(rightColumnX + 24, infoRowY, moveName,
-                                     (moveId || scrollOffset) ? Colors::Text : Colors::TextDim, TextStyle::Body);
-                if (moveId)
+                else
                 {
-                    const std::string ppFieldName = "PP " + std::to_string(p->movePP(moveIndex));
-                    int valueWidth, vh;
-                    framebuffer.measureText(ppFieldName, valueWidth, vh, TextStyle::Caption);
-                    framebuffer.drawText(rightColumnX + Rw - 20 - valueWidth, infoRowY + 3, ppFieldName,
-                                         Colors::TextDim, TextStyle::Caption);
+                    framebuffer.drawFilledRoundedRect(slotX, slotY, slotW, slotH, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(slotX, slotY, slotW, slotH, 10, Colors::Border, 1);
                 }
-                screen.touchButtons.push_back({10 + moveIndex, rightColumnX + 14, infoRowY - 8, Rw - 28, 38});
-                infoRowY += 52;
+
+                if (moveId == 0)
+                {
+                    // Empty slot
+                    framebuffer.drawText(slotX + 18, slotY + (slotH - 20) / 2, "-- Empty Slot --",
+                                         Colors::TextDim, TextStyle::Body);
+                }
+                else
+                {
+                    const Names::MoveData md = Names::getMoveData(moveId);
+                    const std::string moveName = Names::getMoveName(moveId);
+
+                    // 1. Move Category Icon (18x18) centered at left
+                    const int catSize = 18;
+                    const int catX = slotX + 10;
+                    const int catY = slotY + (slotH - catSize) / 2;
+                    framebuffer.drawMoveCategoryIcon(catX, catY, catSize, md.category);
+
+                    // 2. Type Pill (52x20) next to category icon
+                    const int pillX = catX + catSize + 8;
+                    const int pillY = slotY + (slotH - 20) / 2;
+                    framebuffer.drawTypePill(pillX, pillY, 52, 20, md.type);
+
+                    // 3. Move Name (TextStyle::Body) - Top row of text
+                    const int nameX = pillX + 52 + 10;
+                    const int nameY = slotY + 5;
+                    framebuffer.drawText(nameX, nameY, moveName, isSelected ? Colors::White : Colors::Text, TextStyle::Body);
+
+                    // 4. Power & Accuracy - Bottom row under move name
+                    std::string statStr;
+                    if (md.category == 0 || md.power == 0)
+                        statStr = "PWR ---";
+                    else
+                        statStr = "PWR " + std::to_string(md.power);
+                    statStr += "   ";
+                    if (md.accuracy == 0)
+                        statStr += "ACC ---";
+                    else
+                        statStr += "ACC " + std::to_string(md.accuracy);
+
+                    const int statY = slotY + 28;
+                    framebuffer.drawText(nameX, statY, statStr, Colors::TextDim, TextStyle::Caption);
+
+                    // 5. PP Stats & Gauge Bar - Right side
+                    const uint8_t currPP = p->movePP(moveIndex);
+                    uint8_t maxPP = Names::getMoveMaxPP(moveId, p->movePPUps(moveIndex), p->getGameGroup());
+                    if (maxPP == 0)
+                        maxPP = currPP > 0 ? currPP : 1;
+                    const float ppFraction = static_cast<float>(currPP) / static_cast<float>(maxPP);
+
+                    const std::string ppText = "PP " + std::to_string(currPP) + "/" + std::to_string(maxPP);
+                    int ppW = 0, ppH = 0;
+                    framebuffer.measureText(ppText, ppW, ppH, TextStyle::Caption);
+                    const int ppX = slotX + slotW - 14 - ppW;
+                    const int ppY = slotY + 7;
+                    framebuffer.drawText(ppX, ppY, ppText, isSelected ? Colors::Text : Colors::TextDim, TextStyle::Caption);
+
+                    // PP Gauge Bar (66px wide, 6px high)
+                    const int gaugeW = 66;
+                    const int gaugeH = 6;
+                    const int gaugeX = slotX + slotW - 14 - gaugeW;
+                    const int gaugeY = slotY + 31;
+                    Color ppGaugeColor = (ppFraction > 0.50f) ? Colors::Evolve :
+                                         (ppFraction > 0.20f) ? Colors::Primary : Colors::Danger;
+                    framebuffer.drawGaugeBar(gaugeX, gaugeY, gaugeW, gaugeH, ppFraction, ppGaugeColor,
+                                             Color(Colors::Border.red, Colors::Border.green, Colors::Border.blue, 180));
+                }
+
+                // Register touch target for this move slot
+                screen.touchButtons.push_back({10 + moveIndex, slotX, slotY, slotW, slotH});
+                currentSlotY += slotStep;
             }
 
             // Held item (selectable index 14; A opens the item picker).
-            infoRowY += 14;
+            infoRowY = currentSlotY + 6;
             framebuffer.drawText(rightColumnX + 18, infoRowY, "Held Item", Colors::TextDim, TextStyle::Caption);
-            infoRowY += 30;
+            infoRowY += 26;
             {
                 const bool scrollOffset = (selectedIndex == 14);
                 if (scrollOffset)
                 {
-                    framebuffer.drawFilledRoundedRect(rightColumnX + 14, infoRowY - 8, Rw - 28, 38, 10,
+                    framebuffer.drawFilledRoundedRect(slotX, infoRowY - 6, slotW, 40, 10,
                                                       Colors::Selected);
-                    framebuffer.drawRoundedRect(rightColumnX + 14, infoRowY - 8, Rw - 28, 38, 10, Colors::Accent, 2);
+                    framebuffer.drawRoundedRect(slotX, infoRowY - 6, slotW, 40, 10, Colors::Accent, 2);
+                }
+                else
+                {
+                    framebuffer.drawFilledRoundedRect(slotX, infoRowY - 6, slotW, 40, 10,
+                                                      Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(slotX, infoRowY - 6, slotW, 40, 10, Colors::Border, 1);
                 }
                 const uint16_t heldItemId = p->hasHeldItem() ? p->heldItem() : 0;
                 const std::string iname = heldItemId
@@ -1080,12 +1159,12 @@ namespace UI
                                                                 ? Names::getItemNameG3(heldItemId)
                                                                 : getItemName(heldItemId))
                                               : std::string("None");
-                framebuffer.drawText(rightColumnX + 24, infoRowY, p->hasHeldItem() ? iname : std::string("--"),
-                            heldItemId ? Colors::Text : Colors::TextDim, TextStyle::Body);
+                framebuffer.drawText(slotX + 16, infoRowY + 4, p->hasHeldItem() ? iname : std::string("--"),
+                            heldItemId ? (scrollOffset ? Colors::White : Colors::Text) : Colors::TextDim, TextStyle::Body);
                 // Only offer the row as a touch target where the format can actually hold an item;
                 // Gen 1 has no held-item field, so tapping it would open an editor over nothing.
                 if (p->hasHeldItem())
-                    screen.touchButtons.push_back({14, rightColumnX + 14, infoRowY - 8, Rw - 28, 38});
+                    screen.touchButtons.push_back({14, slotX, infoRowY - 6, slotW, 40});
             }
 
             // Bottom nav bar -- the SAME badge guide as the rest of the app. This is a full-screen page, so

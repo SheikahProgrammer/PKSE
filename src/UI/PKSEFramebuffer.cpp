@@ -1,6 +1,7 @@
 #include "UI/PKSEFramebuffer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -13,6 +14,7 @@
 #define NANOVG_GL3
 #include "nanovg_gl.h"
 
+#include "Names/TypeNames.h"
 #include "UI/SpriteManager.h" // eviction hook: textures are keyed on sprite buffer addresses
 #include "Utils/Logger.h"
 
@@ -1019,6 +1021,181 @@ namespace UI
         Color labelColor = luminance > 150 ? Color(30, 30, 36) : Color(245, 245, 250);
         drawText(badgeX + padX, badgeY + (badgeHeight - th) / 2, typeName, labelColor, TextStyle::Caption);
         return total;
+    }
+
+    int PKSEFramebuffer::drawTypePill(int x, int y, int width, int height, uint8_t typeId)
+    {
+        if (!ensureFrame())
+            return width;
+        const char *rawName = (typeId < Names::getTypeNameCount()) ? Names::getTypeName(typeId) : "???";
+        std::string typeName = rawName;
+        for (char &c : typeName)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+        int textWidth = 0, th = 0;
+        measureText(typeName, textWidth, th, TextStyle::Caption);
+
+        int pillWidth = (width > 0) ? width : (textWidth + 14);
+        Color typeColor = (typeId < 19) ? Colors::TypeColors[typeId] : Colors::Gray;
+
+        // Base pill
+        drawFilledRoundedRect(x, y, pillWidth, height, height / 2, typeColor);
+
+        // Specular highlight
+        if (height >= 10)
+        {
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, static_cast<float>(x) + 1.0f, static_cast<float>(y) + 1.0f,
+                           static_cast<float>(pillWidth) - 2.0f, static_cast<float>(height) * 0.44f,
+                           static_cast<float>(height) * 0.22f);
+            nvgFillColor(vg, nvgRGBA(255, 255, 255, 45));
+            nvgFill(vg);
+        }
+
+        // Contrast label color
+        int luminance = (typeColor.red * 299 + typeColor.green * 587 + typeColor.blue * 114) / 1000;
+        Color labelColor = luminance > 155 ? Color(25, 25, 30) : Color(255, 255, 255);
+
+        int tx = x + (pillWidth - textWidth) / 2;
+        int ty = y + (height - th) / 2;
+        drawText(tx, ty, typeName, labelColor, TextStyle::Caption);
+
+        return pillWidth;
+    }
+
+    void PKSEFramebuffer::drawMoveCategoryIcon(int iconX, int iconY, int size, uint8_t category)
+    {
+        if (size <= 0 || !ensureFrame())
+            return;
+
+        const float cx = static_cast<float>(iconX) + static_cast<float>(size) * 0.5f;
+        const float cy = static_cast<float>(iconY) + static_cast<float>(size) * 0.5f;
+        const float r = static_cast<float>(size) * 0.5f;
+        constexpr float pi = 3.14159265358979323846f;
+
+        if (category == 1) // Physical (Burst Star)
+        {
+            constexpr int points = 8;
+            nvgBeginPath(vg);
+            for (int i = 0; i < points * 2; ++i)
+            {
+                float angle = static_cast<float>(i) * (pi / static_cast<float>(points)) - (pi * 0.5f);
+                float rad = (i % 2 == 0) ? r : (r * 0.44f);
+                float px = cx + std::cos(angle) * rad;
+                float py = cy + std::sin(angle) * rad;
+                if (i == 0)
+                    nvgMoveTo(vg, px, py);
+                else
+                    nvgLineTo(vg, px, py);
+            }
+            nvgClosePath(vg);
+            nvgFillColor(vg, toNVG(Colors::CategoryPhysical));
+            nvgFill(vg);
+
+            // Subtle bright starlet core
+            nvgBeginPath(vg);
+            for (int i = 0; i < points * 2; ++i)
+            {
+                float angle = static_cast<float>(i) * (pi / static_cast<float>(points)) - (pi * 0.5f);
+                float rad = (i % 2 == 0) ? (r * 0.40f) : (r * 0.18f);
+                float px = cx + std::cos(angle) * rad;
+                float py = cy + std::sin(angle) * rad;
+                if (i == 0)
+                    nvgMoveTo(vg, px, py);
+                else
+                    nvgLineTo(vg, px, py);
+            }
+            nvgClosePath(vg);
+            nvgFillColor(vg, nvgRGBA(255, 235, 170, 230));
+            nvgFill(vg);
+        }
+        else if (category == 2) // Special (Concentric Energy Ripples)
+        {
+            // Outer ring
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, r * 0.88f);
+            nvgStrokeWidth(vg, std::max(1.5f, static_cast<float>(size) * 0.09f));
+            nvgStrokeColor(vg, toNVG(Colors::CategorySpecial));
+            nvgStroke(vg);
+
+            // Inner ring
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, r * 0.58f);
+            nvgStrokeWidth(vg, std::max(1.5f, static_cast<float>(size) * 0.09f));
+            nvgStrokeColor(vg, toNVG(Colors::CategorySpecial));
+            nvgStroke(vg);
+
+            // Core disc
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, r * 0.28f);
+            nvgFillColor(vg, toNVG(Colors::CategorySpecial));
+            nvgFill(vg);
+
+            // Center spark
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, r * 0.12f);
+            nvgFillColor(vg, nvgRGBA(255, 255, 255, 200));
+            nvgFill(vg);
+        }
+        else // Status (Yin-Yang swirl / split circle)
+        {
+            // Dark base disc
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, r * 0.92f);
+            nvgFillColor(vg, nvgRGBA(70, 72, 82, 255));
+            nvgFill(vg);
+
+            // Light swirl half
+            float R = r * 0.92f;
+            nvgBeginPath(vg);
+            nvgArc(vg, cx, cy, R, -pi * 0.5f, pi * 0.5f, NVG_CW);
+            nvgArc(vg, cx, cy + R * 0.5f, R * 0.5f, pi * 0.5f, -pi * 0.5f, NVG_CW);
+            nvgArc(vg, cx, cy - R * 0.5f, R * 0.5f, pi * 0.5f, -pi * 0.5f, NVG_CCW);
+            nvgClosePath(vg);
+            nvgFillColor(vg, toNVG(Colors::CategoryStatus));
+            nvgFill(vg);
+
+            // Small dot 1 (dark on light half)
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy - R * 0.5f, R * 0.18f);
+            nvgFillColor(vg, nvgRGBA(70, 72, 82, 255));
+            nvgFill(vg);
+
+            // Small dot 2 (light on dark half)
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy + R * 0.5f, R * 0.18f);
+            nvgFillColor(vg, toNVG(Colors::CategoryStatus));
+            nvgFill(vg);
+
+            // Outline
+            nvgBeginPath(vg);
+            nvgCircle(vg, cx, cy, R);
+            nvgStrokeWidth(vg, 1.0f);
+            nvgStrokeColor(vg, nvgRGBA(180, 180, 195, 120));
+            nvgStroke(vg);
+        }
+    }
+
+    void PKSEFramebuffer::drawGaugeBar(int x, int y, int width, int height, float fraction, Color fillColor,
+                                       Color trackColor)
+    {
+        if (width <= 0 || height <= 0 || !ensureFrame())
+            return;
+
+        // Background track
+        drawFilledRoundedRect(x, y, width, height, height / 2, trackColor);
+
+        // Clamped filled fraction
+        float clamped = std::clamp(fraction, 0.0f, 1.0f);
+        int fillW = static_cast<int>(std::round(static_cast<float>(width) * clamped));
+        if (fillW > 0)
+        {
+            nvgSave(vg);
+            nvgIntersectScissor(vg, static_cast<float>(x), static_cast<float>(y), static_cast<float>(fillW),
+                                static_cast<float>(height));
+            drawFilledRoundedRect(x, y, width, height, height / 2, fillColor);
+            nvgRestore(vg);
+        }
     }
 
     void PKSEFramebuffer::startFade() { fadeStart = totalSeconds; }

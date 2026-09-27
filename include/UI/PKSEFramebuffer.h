@@ -146,6 +146,10 @@ namespace UI
                              float maxValue, Color fill, Color webColor, Color outline);
         // Two-tone rounded type badge (HOME style): colored icon chip + name. Returns total width drawn.
         int drawTypeBadge(int badgeX, int badgeY, const std::string &typeName, Color typeColor);
+        // Move summary plate components (PKForge design)
+        int drawTypePill(int x, int y, int width, int height, uint8_t typeId);
+        void drawMoveCategoryIcon(int iconX, int iconY, int size, uint8_t category);
+        void drawGaugeBar(int x, int y, int width, int height, float fraction, Color fillColor, Color trackColor);
         // Draw a sprite with a gentle idle animation (bob + breathe) and a soft ground
         // shadow, driven by the frame tick. (x,y,boxW,boxH) is the nominal placement box;
         // (srcW,srcH) the sprite's native size; `phase` offsets the timing per sprite.

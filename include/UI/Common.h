@@ -185,6 +185,49 @@ namespace UI
         // legible on any sprite in either theme (a bare amber digit washed out on light-mode tiles).
         constexpr Color PartyBadge(255, 193, 68);
         constexpr Color PartyBadgeText(38, 28, 8);
+
+        // Official Pokemon type palette (matching Gen 6-9 in-game colors and PKForge).
+        // Indexed 0..18 matching Names::getTypeNameCount() (18 = Stellar).
+        inline constexpr Color TypeColors[19] = {
+            Color(168, 167, 122), // 0  Normal    #A8A77A
+            Color(194, 46, 40),   // 1  Fighting  #C22E28
+            Color(169, 143, 243), // 2  Flying    #A98FF3
+            Color(163, 62, 161),  // 3  Poison    #A33EA1
+            Color(226, 191, 101), // 4  Ground    #E2BF65
+            Color(182, 161, 54),  // 5  Rock      #B6A136
+            Color(166, 185, 26),  // 6  Bug       #A6B91A
+            Color(115, 87, 151),  // 7  Ghost     #735797
+            Color(183, 183, 206), // 8  Steel     #B7B7CE
+            Color(238, 129, 48),  // 9  Fire      #EE8130
+            Color(99, 144, 240),  // 10 Water     #6390F0
+            Color(122, 199, 76),  // 11 Grass     #7AC74C
+            Color(247, 208, 44),  // 12 Electric  #F7D02C
+            Color(249, 85, 135),  // 13 Psychic   #F95587
+            Color(150, 217, 214), // 14 Ice       #96D9D6
+            Color(111, 53, 252),  // 15 Dragon    #6F35FC
+            Color(112, 87, 70),   // 16 Dark      #705746
+            Color(214, 133, 173), // 17 Fairy     #D685AD
+            Color(66, 191, 232),  // 18 Stellar   #42BFE8
+        };
+
+        // Move Category badge colors
+        constexpr Color CategoryStatus(138, 138, 150);   // #8A8A96 Slate Grey
+        constexpr Color CategoryPhysical(232, 88, 56);   // #E85838 Vermilion / Orange-Red
+        constexpr Color CategorySpecial(40, 120, 216);   // #2878D8 Ripple Blue
+    }
+
+    enum class MoveCategory : uint8_t
+    {
+        Status = 0,
+        Physical = 1,
+        Special = 2
+    };
+
+    inline constexpr Color getTypeColor(uint8_t typeId)
+    {
+        if (typeId < 19)
+            return Colors::TypeColors[typeId];
+        return Colors::Gray;
     }
 
     // Height of the arrowhead on the storage/box grid cursor, in framebuffer pixels. Absolute
