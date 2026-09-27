@@ -93,6 +93,30 @@ namespace Pokemon {
      */
     int getTradeEvolutions(Enums::GameVersion group, uint16_t speciesId, uint8_t formId,
                            TradeEvolution *outEvolutions, int maxEvolutions);
+
+    /** One forward evolution a (species, form) can undergo in one game. */
+    struct ForwardEvolution
+    {
+        uint16_t speciesId;
+        uint8_t  formId;
+        uint16_t destinationSpeciesId;
+        uint8_t  destinationFormId;
+        uint8_t  method;
+        uint16_t argument;
+        uint8_t  level;
+    };
+
+    /// Maximum number of forward evolution branches for any single Pokémon (Milcery has 9, Eevee 8).
+    constexpr int FORWARD_EVOLUTIONS_MAX_PER_SPECIES = 12;
+
+    /**
+     * Every forward evolution (speciesId, formId) has in `group`, written to `outEvolutions`.
+     *
+     * Returns how many were written, at most `maxEvolutions`. Zero means this species+form has no
+     * forward evolutions in this game (it is at its final stage or does not evolve).
+     */
+    int getForwardEvolutions(Enums::GameVersion group, uint16_t speciesId, uint8_t formId,
+                             ForwardEvolution *outEvolutions, int maxEvolutions);
 }
 
 #endif  // PKM_EVOLUTION_TABLE_H

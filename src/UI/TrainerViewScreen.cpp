@@ -36,6 +36,7 @@
 #include "UI/Dialogs/FileBrowserDialog.h"
 #include "UI/Dialogs/PKSMImportDialog.h"
 #include "UI/Modals/PokemonDetailsModal.h"
+#include "UI/Modals/EvolutionModal.h"
 #include "Utils/HelperUtilities.h"
 #include "Utils/Keyboard.h"
 #include "Utils/Logger.h"
@@ -989,6 +990,8 @@ namespace UI
             return "A: Choose  |  B: Cancel";
         if (tradeEvolveConfirmActive)
             return "A: Use a save  |  Y: Generate  |  B: Cancel";
+        if (evolutionModalActive)
+            return "◀ ▶: Switch Branch  |  A: Evolve  |  B: Cancel";
         if (tradePartnerTitles.active)
             return "A: Choose  |  B: Cancel";
         // The legality and ribbon lists are deliberately NOT here. They dim the whole page, nav bar
@@ -1533,6 +1536,8 @@ namespace UI
         details.discardConfirmActive = false; // never let it survive to overlay the next page
         tradeEvolveConfirmActive = false;     // ...and neither may the trade-evolve choices
         tradeEvolveChoiceActive = false;
+        evolutionModalActive = false;
+        evolutionModalBranchIndex = 0;
         tradePartnerTitles.active = false;    // ...nor the donor title picker
         details.editSnapshot.clear();
     }
@@ -4780,6 +4785,111 @@ namespace UI
                 return;
             }
 
+            // Visual Evolution Tree & Requirement Card modal
+            if (evolutionModalActive)
+            {
+                Pokemon::Pokemon *p = detailsTargetPokemon();
+                if (!p)
+                {
+                    evolutionModalActive = false;
+                    return;
+                }
+                const Pokemon::EvolutionInfo evoInfo = Pokemon::getEvolutionInfo(*p);
+                const int branchCount = static_cast<int>(evoInfo.candidates.size());
+
+                // Touch handling
+                if (touchedButton == 99 || touchedButton == 200) // Close / Cancel button
+                {
+                    evolutionModalActive = false;
+                    return;
+                }
+                if (touchedButton >= 1000 && touchedButton < 1000 + branchCount)
+                {
+                    evolutionModalBranchIndex = touchedButton - 1000;
+                    return;
+                }
+                if (touchedButton == 201) // Evolve button
+                {
+                    if (armTap(201, HidNpadButton_A))
+                        return;
+                }
+
+                // Gamepad handling
+                if (buttonsDown & HidNpadButton_B)
+                {
+                    evolutionModalActive = false;
+                    return;
+                }
+
+                if (branchCount > 1)
+                {
+                    if ((buttonsDown & HidNpadButton_Left) || (buttonsDown & HidNpadButton_L))
+                    {
+                        evolutionModalBranchIndex = (evolutionModalBranchIndex + branchCount - 1) % branchCount;
+                    }
+                    if ((buttonsDown & HidNpadButton_Right) || (buttonsDown & HidNpadButton_R))
+                    {
+                        evolutionModalBranchIndex = (evolutionModalBranchIndex + 1) % branchCount;
+                    }
+                }
+
+                if (buttonsDown & HidNpadButton_A)
+                {
+                    if (evoInfo.hasEvolutions() && evolutionModalBranchIndex >= 0 && evolutionModalBranchIndex < branchCount)
+                    {
+                        const auto &cand = evoInfo.candidates[evolutionModalBranchIndex];
+                        if (cand.isTrade)
+                        {
+                            const Pokemon::TradeEvolutionOffer tradeOffer = Pokemon::getTradeEvolutionOffer(*p);
+                            int tradeIndex = -1;
+                            for (int i = 0; i < tradeOffer.candidateCount; ++i)
+                            {
+                                if (tradeOffer.candidates[i].destinationSpeciesId == cand.destinationSpeciesId &&
+                                    tradeOffer.candidates[i].destinationFormId == cand.destinationFormId)
+                                {
+                                    tradeIndex = i;
+                                    break;
+                                }
+                            }
+                            evolutionModalActive = false;
+                            if (tradeIndex >= 0)
+                            {
+                                beginTradeEvolve(tradeIndex);
+                            }
+                            else if (Pokemon::applyEvolution(*p, cand))
+                            {
+                                hasUnsavedChanges = true;
+                                mirrorEditedPartyMember();
+                            }
+                            return;
+                        }
+                        else
+                        {
+                            if (Pokemon::applyEvolution(*p, cand))
+                            {
+                                hasUnsavedChanges = true;
+                                mirrorEditedPartyMember();
+                                if (g_debugLogging)
+                                {
+                                    Utils::logEventToFile(std::string("MON action=EVOLVE ") +
+                                                          Utils::logField("from", Trainer::getSpeciesName(evoInfo.speciesId)) + " " +
+                                                          Utils::logField("to", Trainer::getSpeciesName(cand.destinationSpeciesId)) + " " +
+                                                          Utils::briefPokemon(*p));
+                                }
+                            }
+                            evolutionModalActive = false;
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        evolutionModalActive = false;
+                        return;
+                    }
+                }
+                return;
+            }
+
             // Legality overlay (full issue list) intercepts input while open: B or any tap closes it.
             if (details.legalityOverlay)
             {
@@ -5100,29 +5210,10 @@ namespace UI
                     clearPickerSearch();
                 }
                 else if (fieldIndex == 33)
-                { // Trade Evolve -- run the evolution a trade would have triggered, in place.
-                    // No confirmation for the evolution itself: the page already holds a snapshot,
-                    // so B -> Discard puts the pokemon back exactly as it was, which is a better
-                    // undo than a dialog in front of every press.
-                    const Pokemon::TradeEvolutionOffer tradeOffer = Pokemon::getTradeEvolutionOffer(*pokemon);
-                    tradePartnerPick = TradePartnerPickState{};
-                    const int resolvedIndex = tradeOffer.resolvedIndex();
-                    if (!tradeOffer.hasCandidate())
-                    {
-                        // Unreachable from the UI -- the button is not drawn at all without one.
-                    }
-                    else if (resolvedIndex < 0)
-                    {
-                        // Two destinations and no held item naming either: Clamperl, and only
-                        // Clamperl. The item is the games' way of choosing, so with none held the
-                        // user is the only thing left that can.
-                        tradeEvolveChoiceIndex = 0;
-                        tradeEvolveChoiceActive = true;
-                    }
-                    else
-                    {
-                        beginTradeEvolve(resolvedIndex);
-                    }
+                {
+                    // Open the PKForge-style Visual Evolution Tree & Requirement Card modal
+                    evolutionModalActive = true;
+                    evolutionModalBranchIndex = 0;
                 }
                 else if (fieldIndex == 26)
                 { // Form (species alternate forms)
@@ -7404,6 +7495,10 @@ namespace UI
         if (details.active)
         {
             Modals::drawPokemonDetailsModal(*this, framebuffer);
+        }
+        if (evolutionModalActive)
+        {
+            Modals::drawEvolutionModal(*this, framebuffer);
         }
         if (pickerActive)
         { // overlays the modal; registers its own touch buttons last

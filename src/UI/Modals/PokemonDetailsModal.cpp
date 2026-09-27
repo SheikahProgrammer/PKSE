@@ -303,49 +303,31 @@ namespace UI
             // capability predicates exist to remove.
             const bool notGen3 = !Enums::isGen3Group(p->getGameGroup());
             const bool modernFmt = (notGen3 && p->getGameGroup() != Enums::GameVersion::GG);
-            // TRADE EVOLVE LEADS THE COLUMN, and is drawn as a BUTTON rather than a row. Everything
-            // below it is a value you edit; this one changes what the Pokemon IS, and while it
-            // looked like its neighbours it read as another line of data rather than something to
-            // press. Shown for every pokemon whose species+form trade-evolves in ITS OWN game -- a
-            // bank slot holds a foreign pokemon.
-            //
-            // The value NAMES WHAT IT BECOMES, which is the whole of the question for every species
-            // but Clamperl: its two rows lead to different Pokemon, so holding neither item both
-            // are named and the press asks which. A held item is never a condition on pressing --
-            // see TradeEvolutionOffer.
-            //
-            // Legends: Arceus has no trading at all; the same four evolutions happen there through
-            // the Linking Cord, a BAG item the player uses rather than one the pokemon holds. So
-            // the label says "Evolve" there.
+            // EVOLUTION CARD LEADS THE COLUMN, drawn as an action button with an evolve icon.
+            // Displays either the evolution branches (or destination) or "Final Stage" for fully
+            // evolved Pokémon. Pressing opens the PKForge-style Visual Evolution Tree modal.
             {
-                const Pokemon::TradeEvolutionOffer tradeOffer = Pokemon::getTradeEvolutionOffer(*p);
-                if (tradeOffer.hasCandidate())
+                const Pokemon::EvolutionInfo evoInfo = Pokemon::getEvolutionInfo(*p);
+                if (evoInfo.hasEvolutions())
                 {
-                    const bool tradesInThisGame = (p->getGameGroup() != Enums::GameVersion::PLA);
-                    std::string tradeValue;
+                    std::string evoValue;
                     if (!screen.tradePartnerPick.refusalText.empty())
                     {
-                        // A refused or failed trade-partner pick reports itself HERE, on the row
-                        // that started it -- a pick that silently does nothing is indistinguishable
-                        // from one that never registered. Tested FIRST because the button is always
-                        // naming a destination otherwise, and that would bury the refusal.
-                        tradeValue = screen.tradePartnerPick.refusalText;
+                        evoValue = screen.tradePartnerPick.refusalText;
+                    }
+                    else if (evoInfo.candidates.size() == 1)
+                    {
+                        evoValue = "\xE2\x9E\x94 " + evoInfo.candidates[0].speciesName;
                     }
                     else
                     {
-                        const int resolvedIndex = tradeOffer.resolvedIndex();
-                        for (int candidateIndex = 0; candidateIndex < tradeOffer.candidateCount; ++candidateIndex)
-                        {
-                            if (resolvedIndex >= 0 && candidateIndex != resolvedIndex)
-                                continue;
-                            const Pokemon::TradeEvolution &becomes = tradeOffer.candidates[candidateIndex];
-                            if (!tradeValue.empty())
-                                tradeValue += " or ";
-                            tradeValue += Names::getDisplayName(becomes.destinationSpeciesId, becomes.destinationFormId,
-                                                                Trainer::getSpeciesName(becomes.destinationSpeciesId));
-                        }
+                        evoValue = std::to_string(evoInfo.candidates.size()) + " Branches";
                     }
-                    evolveButtonRow(tradesInThisGame ? "Trade Evolve" : "Evolve", tradeValue, 33);
+                    evolveButtonRow("Evolution", evoValue, 33);
+                }
+                else if (evoInfo.isFinalStage() && evoInfo.chain.size() > 1)
+                {
+                    evolveButtonRow("Evolution", "Final Stage", 33);
                 }
             }
             // Species heads the fields -- it is the pokemon's identity, and everything under it is read

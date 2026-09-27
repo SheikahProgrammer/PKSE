@@ -364,6 +364,10 @@ namespace UI
         /// real save and a generated trainer is open. False for Gens 1-5, which never ask.
         bool tradeEvolveConfirmActive = false;
 
+        /// Visual Evolution Card modal state (PKForge-style side-by-side stage, branch chips, stat deltas).
+        bool evolutionModalActive = false;
+        int  evolutionModalBranchIndex = 0;
+
         /// "Trade Evolve" asked, and the record does not say which of two destinations it means --
         /// Clamperl holding neither of its items, and nothing else in any game.
         bool tradeEvolveChoiceActive = false;

@@ -37,6 +37,9 @@
 #ifndef POKEMON_EVOLUTION_H
 #define POKEMON_EVOLUTION_H
 
+#include <string>
+#include <vector>
+
 #include "Pokemon/EvolutionTable.h"
 
 namespace Pokemon
@@ -107,6 +110,60 @@ namespace Pokemon
      * either.
      */
     bool applyTradeEvolution(Pokemon &pokemon, int candidateIndex);
+
+    /** One branch the selected Pokemon can evolve into, with all preview and requirement details. */
+    struct EvolutionCandidate
+    {
+        uint16_t destinationSpeciesId = 0;
+        uint8_t  destinationFormId = 0;
+        uint8_t  method = 0;
+        uint16_t argument = 0;
+        uint8_t  level = 0;
+        bool     isTrade = false;
+        bool     conditionMet = false;
+        std::string speciesName;
+        std::string requirement;
+        std::string statusText;
+        std::string consumedItem;
+        std::string abilityBefore;
+        std::string abilityAfter;
+        int statsBefore[6]{}; // HP, Atk, Def, SpA, SpD, Spe
+        int statsAfter[6]{};
+    };
+
+    /** A stage along the ancestor -> current -> destination lineage. */
+    struct EvolutionChainStage
+    {
+        uint16_t speciesId = 0;
+        uint8_t  formId = 0;
+        bool     isCurrent = false;
+        std::string name;
+    };
+
+    /** Complete evolution overview for the current Pokemon. */
+    struct EvolutionInfo
+    {
+        uint16_t speciesId = 0;
+        uint8_t  formId = 0;
+        bool     isShiny = false;
+        uint8_t  currentLevel = 0;
+        std::string currentNickname;
+        std::string currentSpeciesName;
+        std::vector<EvolutionChainStage> chain;
+        std::vector<EvolutionCandidate>  candidates;
+
+        bool hasEvolutions() const noexcept { return !candidates.empty(); }
+        bool isFinalStage() const noexcept { return candidates.empty() && !chain.empty(); }
+    };
+
+    /** Full evolution details, lineage and candidate previews for `pokemon`. */
+    EvolutionInfo getEvolutionInfo(const Pokemon &pokemon);
+
+    /** Requirement string describing in-game criteria. */
+    std::string getEvolutionRequirementText(Enums::GameVersion group, const ForwardEvolution &evo, uint8_t currentLevel);
+
+    /** Performs evolution to `candidate` in-place, updating stats, ability, nickname, and checksum. */
+    bool applyEvolution(Pokemon &pokemon, const EvolutionCandidate &candidate);
 }
 
 #endif  // POKEMON_EVOLUTION_H
