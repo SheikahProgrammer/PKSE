@@ -153,6 +153,12 @@ namespace UI
         // Corner brackets / targeting reticle (DS box crosshair / PKForge style).
         void drawCornerBrackets(int boxX, int boxY, int boxWidth, int boxHeight, int bracketLen, int thickness,
                                 Color color, float pulseOffset = 0.0f);
+        // Retro DS hardware chrome (PksmPaint / PKForge design tokens)
+        void drawRetroDSPanel(int x, int y, int width, int height, int radius = 6, Color body = Colors::Panel);
+        void drawRetroDSHeaderStrip(int x, int y, int width, int height, const char *label = nullptr,
+                                    Color accent = Color(0x2B, 0x4E, 0x95), TextStyle style = TextStyle::Heading);
+        void drawRetroDSButton(int x, int y, int width, int height, const char *label = nullptr, bool selected = false,
+                               Color accent = Colors::Accent, int radius = 6);
         // Draw a sprite with a gentle idle animation (bob + breathe) and a soft ground
         // shadow, driven by the frame tick. (x,y,boxW,boxH) is the nominal placement box;
         // (srcW,srcH) the sprite's native size; `phase` offsets the timing per sprite.

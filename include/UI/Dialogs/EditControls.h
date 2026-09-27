@@ -33,6 +33,18 @@ namespace UI
         inline void drawEditStepButton(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer,
                                        int boxX, int boxY, int boxWidth, int boxHeight, const EditStep &step)
         {
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSButton(boxX, boxY, boxWidth, boxHeight, nullptr, false, Colors::Accent, 6);
+                const int glyphWidth = buttonGlyphWidth(framebuffer, step.glyph);
+                buttonGlyph(framebuffer, boxX + (boxWidth - glyphWidth) / 2, boxY + 18, step.glyph, false); // badge above
+                int textWidth, th;
+                framebuffer.measureText(step.delta, textWidth, th, TextStyle::Caption);
+                framebuffer.drawText(boxX + (boxWidth - textWidth) / 2, boxY + boxHeight - th - 6, step.delta, Color(0xF4, 0xF8, 0xFF),
+                                     TextStyle::Caption); // delta below
+                screen.touchButtons.push_back({step.buttonId, boxX, boxY, boxWidth, boxHeight});
+                return;
+            }
             framebuffer.drawFilledRoundedRect(boxX, boxY, boxWidth, boxHeight, 8, Colors::PanelAlt);
             framebuffer.drawRoundedRect(boxX, boxY, boxWidth, boxHeight, 8, Colors::Border, 1);
             const int glyphWidth = buttonGlyphWidth(framebuffer, step.glyph);

@@ -39,11 +39,18 @@ namespace UI
             const int cardY = (screenH - cardH) / 2;
 
             // Panel frame
-            framebuffer.drawFilledRoundedRect(cardX, cardY, cardW, cardH, 16, Colors::Panel);
             const Color accentColor = (g_themeMode == ThemeMode::RetroDS)
                                           ? Color(0xE8, 0x38, 0x48)
                                           : Colors::Accent;
-            framebuffer.drawRoundedRect(cardX, cardY, cardW, cardH, 16, Colors::Border, 1);
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSPanel(cardX, cardY, cardW, cardH, 16, Colors::Panel);
+            }
+            else
+            {
+                framebuffer.drawFilledRoundedRect(cardX, cardY, cardW, cardH, 16, Colors::Panel);
+                framebuffer.drawRoundedRect(cardX, cardY, cardW, cardH, 16, Colors::Border, 1);
+            }
 
             screen.touchButtons.clear();
 
@@ -343,31 +350,54 @@ namespace UI
                 const int btnH = 44;
 
                 // Cancel button
-                framebuffer.drawFilledRoundedRect(cancelX, btnY, cancelW, btnH, 10, Colors::PanelAlt);
-                framebuffer.drawRoundedRect(cancelX, btnY, cancelW, btnH, 10, Colors::Border, 1);
-                int cw = 0, ch = 0;
-                framebuffer.measureText("Cancel (B)", cw, ch, TextStyle::Body);
-                framebuffer.drawText(cancelX + (cancelW - cw) / 2, btnY + 12, "Cancel (B)", Colors::Text, TextStyle::Body);
+                if (g_themeMode == ThemeMode::RetroDS)
+                {
+                    framebuffer.drawRetroDSButton(cancelX, btnY, cancelW, btnH, "Cancel (B)", false, accentColor, 10);
+                }
+                else
+                {
+                    framebuffer.drawFilledRoundedRect(cancelX, btnY, cancelW, btnH, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(cancelX, btnY, cancelW, btnH, 10, Colors::Border, 1);
+                    int cw = 0, ch = 0;
+                    framebuffer.measureText("Cancel (B)", cw, ch, TextStyle::Body);
+                    framebuffer.drawText(cancelX + (cancelW - cw) / 2, btnY + 12, "Cancel (B)", Colors::Text, TextStyle::Body);
+                }
                 screen.touchButtons.push_back({200, cancelX, btnY, cancelW, btnH});
 
                 // Evolve button
-                const Color evolveBg = cand.isTrade
-                                           ? Color(0x00, 0x9B, 0x9E)
-                                           : (cand.conditionMet ? Colors::Evolve : Colors::Selected);
-                framebuffer.drawFilledRoundedRect(evolveX, btnY, evolveW, btnH, 10, evolveBg);
-                framebuffer.drawRoundedRect(evolveX, btnY, evolveW, btnH, 10, accentColor, 2);
-                framebuffer.drawCornerBrackets(evolveX, btnY, evolveW, btnH, 8, 2, accentColor,
-                                               std::sin(nowT * 5.0f) * 1.5f);
+                if (g_themeMode == ThemeMode::RetroDS)
+                {
+                    const char *evolveLabel = cand.isTrade ? "Trade Evolve (A)" : "Evolve (A)";
+                    framebuffer.drawRetroDSButton(evolveX, btnY, evolveW, btnH, nullptr, true,
+                                                  cand.isTrade ? Color(0x00, 0xD2, 0xD3) : accentColor, 10);
+                    int ew = 0, eh = 0;
+                    framebuffer.measureText(evolveLabel, ew, eh, TextStyle::Body);
+                    const int evoIconSz = 18;
+                    const int evoContentW = evoIconSz + 8 + ew;
+                    const int evoContentX = evolveX + (evolveW - evoContentW) / 2;
+                    framebuffer.drawEvolveArrow(evoContentX, btnY + (btnH - evoIconSz) / 2, evoIconSz, Color(0xF4, 0xF8, 0xFF));
+                    framebuffer.drawText(evoContentX + evoIconSz + 8, btnY + 12, evolveLabel, Color(0xF4, 0xF8, 0xFF), TextStyle::Body);
+                }
+                else
+                {
+                    const Color evolveBg = cand.isTrade
+                                               ? Color(0x00, 0x9B, 0x9E)
+                                               : (cand.conditionMet ? Colors::Evolve : Colors::Selected);
+                    framebuffer.drawFilledRoundedRect(evolveX, btnY, evolveW, btnH, 10, evolveBg);
+                    framebuffer.drawRoundedRect(evolveX, btnY, evolveW, btnH, 10, accentColor, 2);
+                    framebuffer.drawCornerBrackets(evolveX, btnY, evolveW, btnH, 8, 2, accentColor,
+                                                   std::sin(nowT * 5.0f) * 1.5f);
 
-                const char *evolveLabel = cand.isTrade ? "Trade Evolve (A)" : "Evolve (A)";
-                int ew = 0, eh = 0;
-                framebuffer.measureText(evolveLabel, ew, eh, TextStyle::Body);
-                const int evoIconSz = 18;
-                const int evoContentW = evoIconSz + 8 + ew;
-                const int evoContentX = evolveX + (evolveW - evoContentW) / 2;
+                    const char *evolveLabel = cand.isTrade ? "Trade Evolve (A)" : "Evolve (A)";
+                    int ew = 0, eh = 0;
+                    framebuffer.measureText(evolveLabel, ew, eh, TextStyle::Body);
+                    const int evoIconSz = 18;
+                    const int evoContentW = evoIconSz + 8 + ew;
+                    const int evoContentX = evolveX + (evolveW - evoContentW) / 2;
 
-                framebuffer.drawEvolveArrow(evoContentX, btnY + (btnH - evoIconSz) / 2, evoIconSz, Colors::EvolveText);
-                framebuffer.drawText(evoContentX + evoIconSz + 8, btnY + 12, evolveLabel, Colors::EvolveText, TextStyle::Body);
+                    framebuffer.drawEvolveArrow(evoContentX, btnY + (btnH - evoIconSz) / 2, evoIconSz, Colors::EvolveText);
+                    framebuffer.drawText(evoContentX + evoIconSz + 8, btnY + 12, evolveLabel, Colors::EvolveText, TextStyle::Body);
+                }
                 screen.touchButtons.push_back({201, evolveX, btnY, evolveW, btnH});
             }
             else
@@ -442,11 +472,18 @@ namespace UI
                 const int btnY = cardY + cardH - 58;
                 const int closeW = 200;
                 const int closeBtnX = cardX + (cardW - closeW) / 2;
-                framebuffer.drawFilledRoundedRect(closeBtnX, btnY, closeW, 44, 10, Colors::PanelAlt);
-                framebuffer.drawRoundedRect(closeBtnX, btnY, closeW, 44, 10, Colors::Border, 1);
-                int cw = 0, ch = 0;
-                framebuffer.measureText("Close (B)", cw, ch, TextStyle::Body);
-                framebuffer.drawText(closeBtnX + (closeW - cw) / 2, btnY + 12, "Close (B)", Colors::Text, TextStyle::Body);
+                if (g_themeMode == ThemeMode::RetroDS)
+                {
+                    framebuffer.drawRetroDSButton(closeBtnX, btnY, closeW, 44, "Close (B)", false, accentColor, 10);
+                }
+                else
+                {
+                    framebuffer.drawFilledRoundedRect(closeBtnX, btnY, closeW, 44, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(closeBtnX, btnY, closeW, 44, 10, Colors::Border, 1);
+                    int cw = 0, ch = 0;
+                    framebuffer.measureText("Close (B)", cw, ch, TextStyle::Body);
+                    framebuffer.drawText(closeBtnX + (closeW - cw) / 2, btnY + 12, "Close (B)", Colors::Text, TextStyle::Body);
+                }
                 screen.touchButtons.push_back({200, closeBtnX, btnY, closeW, 44});
             }
         }

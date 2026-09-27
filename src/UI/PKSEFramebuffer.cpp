@@ -1240,6 +1240,156 @@ namespace UI
         nvgStroke(vg);
     }
 
+    static inline Color mixColors(Color a, Color b, float t)
+    {
+        float inv = 1.0f - t;
+        uint8_t r = static_cast<uint8_t>(std::clamp(a.red * inv + b.red * t, 0.0f, 255.0f));
+        uint8_t g = static_cast<uint8_t>(std::clamp(a.green * inv + b.green * t, 0.0f, 255.0f));
+        uint8_t bVal = static_cast<uint8_t>(std::clamp(a.blue * inv + b.blue * t, 0.0f, 255.0f));
+        uint8_t alpha = static_cast<uint8_t>(std::clamp(a.alpha * inv + b.alpha * t, 0.0f, 255.0f));
+        return Color(r, g, bVal, alpha);
+    }
+
+    static inline Color lighterColor(Color c, float t)
+    {
+        return mixColors(c, Color(255, 255, 255, c.alpha), t);
+    }
+
+    static inline Color darkerColor(Color c, float t)
+    {
+        return mixColors(c, Color(0, 0, 0, c.alpha), t);
+    }
+
+    void PKSEFramebuffer::drawRetroDSPanel(int x, int y, int width, int height, int radius, Color body)
+    {
+        if (width <= 0 || height <= 0 || !ensureFrame())
+            return;
+
+        // Hard 3px pixel drop shadow in LogoVoid (#14121D with alpha 0x88)
+        drawFilledRoundedRect(x + 3, y + 3, width, height, radius, Color(0x14, 0x12, 0x1D, 0x88));
+
+        // Panel body fill
+        drawFilledRoundedRect(x, y, width, height, radius, body);
+
+        // Top specular light / sheen (upper third, min 24px)
+        int lightH = std::min(26, height / 3);
+        if (lightH > 4)
+        {
+            NVGpaint sheenPaint = nvgLinearGradient(vg, (float)(x + 2), (float)(y + 2),
+                                                    (float)(x + 2), (float)(y + 2 + lightH),
+                                                    toNVG(lighterColor(body, 0.07f)),
+                                                    toNVG(body));
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, (float)(x + 2), (float)(y + 2), (float)(width - 4), (float)lightH,
+                           static_cast<float>(std::max(1, radius - 2)));
+            nvgFillPaint(vg, sheenPaint);
+            nvgFill(vg);
+        }
+
+        // 2px cobalt bezel (LogoGrid: #2B4E95)
+        drawRoundedRect(x, y, width, height, radius, Color(0x2B, 0x4E, 0x95), 2);
+    }
+
+    void PKSEFramebuffer::drawRetroDSHeaderStrip(int x, int y, int width, int height, const char *label, Color accent, TextStyle style)
+    {
+        if (width <= 0 || height <= 0 || !ensureFrame())
+            return;
+
+        constexpr int radius = 4;
+        // Outer void outline (#14121D)
+        drawFilledRoundedRect(x, y, width, height, radius, Color(0x14, 0x12, 0x1D));
+
+        // Vertical gradient body: lighter on top, darker on bottom
+        NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
+                                          (float)(x + 1), (float)(y + height - 1),
+                                          toNVG(lighterColor(accent, 0.18f)),
+                                          toNVG(darkerColor(accent, 0.12f)));
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
+        nvgFillPaint(vg, grad);
+        nvgFill(vg);
+
+        // Subtle top glass gloss sheen (upper half)
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, (float)(x + 2), (float)(y + 2), (float)(width - 4), (float)(height / 2 - 1), 2.0f);
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 24));
+        nvgFill(vg);
+
+        // If label provided, draw drop shadow text + crisp foreground text
+        if (label && label[0] != '\0')
+        {
+            int tw = 0, th = 0;
+            measureText(label, tw, th, style);
+            int textY = y + (height - th) / 2;
+
+            // 1px pixel drop shadow in LogoVoid (#14121D)
+            drawText(x + 12 + 1, textY + 1, label, Color(0x14, 0x12, 0x1D, 0xA0), style);
+            // Foreground white/pale ink
+            drawText(x + 12, textY, label, Color(0xF4, 0xF8, 0xFF), style);
+        }
+    }
+
+    void PKSEFramebuffer::drawRetroDSButton(int x, int y, int width, int height, const char *label, bool selected, Color accent, int radius)
+    {
+        if (width <= 0 || height <= 0 || !ensureFrame())
+            return;
+
+        // Outer void outline (#14121D)
+        drawFilledRoundedRect(x, y, width, height, radius, Color(0x14, 0x12, 0x1D));
+
+        if (!selected)
+        {
+            // Resting / Idle Button: LogoDeck body with subtle gradient and 1.5px LogoGrid edge
+            Color deck = Color(0x1B, 0x24, 0x47);
+            NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
+                                              (float)(x + 1), (float)(y + height - 1),
+                                              toNVG(lighterColor(deck, 0.05f)),
+                                              toNVG(darkerColor(deck, 0.06f)));
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
+            nvgFillPaint(vg, grad);
+            nvgFill(vg);
+
+            drawRoundedRect(x + 1, y + 1, width - 2, height - 2, radius - 1, Color(0x2B, 0x4E, 0x95), 1);
+
+            if (label && label[0] != '\0')
+            {
+                int tw = 0, th = 0;
+                measureText(label, tw, th, TextStyle::Body);
+                drawText(x + (width - tw) / 2, y + (height - th) / 2, label, Color(0xA8, 0xBA, 0xDC), TextStyle::Body);
+            }
+        }
+        else
+        {
+            // Selected / Active Button: Vibrant accent gradient, pale focus rim, corner brackets
+            NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
+                                              (float)(x + 1), (float)(y + height - 1),
+                                              toNVG(lighterColor(accent, 0.20f)),
+                                              toNVG(darkerColor(accent, 0.10f)));
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
+            nvgFillPaint(vg, grad);
+            nvgFill(vg);
+
+            // Thin pale focus rim (#F4F8FF with alpha 0x70)
+            drawRoundedRect(x + 1, y + 1, width - 2, height - 2, radius - 1, Color(0xF4, 0xF8, 0xFF, 0x70), 1);
+
+            // Animated corner brackets in accent color
+            float pulse = std::sin(static_cast<float>(getTimeSeconds()) * 5.0f) * 1.5f;
+            drawCornerBrackets(x, y, width, height, 6, 2, accent, pulse);
+
+            if (label && label[0] != '\0')
+            {
+                int tw = 0, th = 0;
+                measureText(label, tw, th, TextStyle::Body);
+                // Drop shadow text
+                drawText(x + (width - tw) / 2 + 1, y + (height - th) / 2 + 1, label, Color(0x14, 0x12, 0x1D, 0x90), TextStyle::Body);
+                // Crisp white text
+                drawText(x + (width - tw) / 2, y + (height - th) / 2, label, Color(0xF4, 0xF8, 0xFF), TextStyle::Body);
+            }
+        }
+    }
+
     void PKSEFramebuffer::startFade() { fadeStart = totalSeconds; }
 
     void PKSEFramebuffer::drawFadeOverlay()

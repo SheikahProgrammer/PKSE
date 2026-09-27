@@ -22,6 +22,14 @@ namespace UI
         {
             // scrim
             framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0, 0, 0, 150));
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSPanel(dialogX, dialogY, dialogWidth, dialogHeight, 12, Colors::Panel);
+                Color headerAccent = (titleColor.red > 180 && titleColor.green < 150) ? Color(0xE8, 0x38, 0x48) : Color(0x2B, 0x4E, 0x95);
+                framebuffer.drawRetroDSHeaderStrip(dialogX + 10, dialogY + 10, dialogWidth - 20, 42, title.c_str(),
+                                                   headerAccent, TextStyle::Heading);
+                return dialogY + 68;
+            }
             framebuffer.drawSoftShadow(dialogX, dialogY, dialogWidth, dialogHeight, DIALOG_CORNER_RADIUS);
             framebuffer.drawFilledRoundedRect(dialogX, dialogY, dialogWidth, dialogHeight, DIALOG_CORNER_RADIUS,
                                               Colors::Panel);

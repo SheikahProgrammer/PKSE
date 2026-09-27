@@ -157,6 +157,19 @@ namespace UI
                                 Color fillColor = Colors::PanelAlt, Color textColor = Colors::Text,
                                 bool pressed = false)
     {
+        if (g_themeMode == ThemeMode::RetroDS)
+        {
+            Color btnAccent = (fillColor.red > 150 && fillColor.green < 100) ? Color(0xE8, 0x38, 0x48) : Colors::Accent;
+            framebuffer.drawRetroDSButton(boxX, boxY, boxWidth, boxHeight, nullptr, pressed, btnAccent, 8);
+            const int glyphWidth = buttonGlyphWidth(framebuffer, glyph);
+            int labelWidth, lh;
+            framebuffer.measureText(label, labelWidth, lh);
+            const int glyphX = boxX + (boxWidth - (glyphWidth + 10 + labelWidth)) / 2;
+            buttonGlyph(framebuffer, glyphX, boxY + boxHeight / 2, glyph, false);
+            framebuffer.drawText(glyphX + glyphWidth + 10, boxY + (boxHeight - lh) / 2, label,
+                                 pressed ? Color(0xF4, 0xF8, 0xFF) : (fillColor.red > 150 ? Color(0xFF, 0x90, 0x90) : Color(0xF4, 0xF8, 0xFF)));
+            return;
+        }
         framebuffer.drawFilledRoundedRect(boxX, boxY, boxWidth, boxHeight, 8, fillColor);
         if (pressed)
         {
@@ -412,6 +425,17 @@ namespace UI
     // Top title bar: "PKSE" + a subtitle on a sheet that curves along its bottom edge.
     inline void drawTitleBar(PKSEFramebuffer &framebuffer, const std::string &subtitle)
     {
+        if (g_themeMode == ThemeMode::RetroDS)
+        {
+            framebuffer.drawRetroDSHeaderStrip(0, 0, framebuffer.getWidth(), HEADER_HEIGHT, nullptr, Color(0x2B, 0x4E, 0x95), TextStyle::Title);
+            framebuffer.drawText(20, 10, "PKSE", Color(0x42, 0xBF, 0xE8), TextStyle::Title);
+            int boxWidth, bh;
+            framebuffer.measureText("PKSE", boxWidth, bh, TextStyle::Title);
+            framebuffer.drawFilledRoundedRect(20, 52, boxWidth, 3, 2, Color(0x42, 0xBF, 0xE8));
+            if (!subtitle.empty())
+                framebuffer.drawText(20 + boxWidth + 16, 24, subtitle, Color(0xA8, 0xBA, 0xDC), TextStyle::Body);
+            return;
+        }
         framebuffer.drawSoftShadow(0, -40, framebuffer.getWidth(), HEADER_HEIGHT + 40, CHROME_CORNER_RADIUS);
         framebuffer.drawFilledRoundedRect(0, -CHROME_CORNER_RADIUS, framebuffer.getWidth(),
                                           HEADER_HEIGHT + CHROME_CORNER_RADIUS, CHROME_CORNER_RADIUS, Colors::Panel);
@@ -429,6 +453,12 @@ namespace UI
     inline void drawNavBar(PKSEFramebuffer &framebuffer, const std::string &hint)
     {
         const int screenWidth = framebuffer.getWidth(), barY = framebuffer.getHeight() - NAV_BAR_HEIGHT;
+        if (g_themeMode == ThemeMode::RetroDS)
+        {
+            framebuffer.drawRetroDSHeaderStrip(0, barY, screenWidth, NAV_BAR_HEIGHT, nullptr, Color(0x1B, 0x24, 0x47), TextStyle::Heading);
+            drawNavHints(framebuffer, 0, screenWidth, barY + NAV_BAR_HEIGHT / 2, hint);
+            return;
+        }
         framebuffer.drawSoftShadow(0, barY, screenWidth, NAV_BAR_HEIGHT + 40, CHROME_CORNER_RADIUS);
         framebuffer.drawFilledRoundedRect(0, barY, screenWidth, NAV_BAR_HEIGHT + CHROME_CORNER_RADIUS,
                                           CHROME_CORNER_RADIUS, Colors::Panel);

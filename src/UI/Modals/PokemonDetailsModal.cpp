@@ -129,8 +129,15 @@ namespace UI
             const int colY = 72, colH = H - colY - NAV_BAR_HEIGHT - 6; // leave room for the bottom nav bar
 
             const int leftColumnX = 24, Lw = 430;
-            framebuffer.drawFilledRoundedRect(leftColumnX, colY, Lw, colH, 16, Colors::Panel);
-            framebuffer.drawRoundedRect(leftColumnX, colY, Lw, colH, 16, Colors::Border, 1);
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSPanel(leftColumnX, colY, Lw, colH, 16, Colors::Panel);
+            }
+            else
+            {
+                framebuffer.drawFilledRoundedRect(leftColumnX, colY, Lw, colH, 16, Colors::Panel);
+                framebuffer.drawRoundedRect(leftColumnX, colY, Lw, colH, 16, Colors::Border, 1);
+            }
 
             const int renderSz = 150;
             Sprite *sprite = SpriteManager::getSprite(p->speciesID(), p->form(), isShiny);
@@ -584,8 +591,15 @@ namespace UI
             }
 
             const int centreColumnX = 474, Cw = 340;
-            framebuffer.drawFilledRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Panel);
-            framebuffer.drawRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Border, 1);
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSPanel(centreColumnX, colY, Cw, colH, 16, Colors::Panel);
+            }
+            else
+            {
+                framebuffer.drawFilledRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Panel);
+                framebuffer.drawRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Border, 1);
+            }
 
             // Header: Title + Mode Toggle Button
             const char *modeTitle = (screen.details.hexMode == 0) ? "Values"
@@ -1014,8 +1028,15 @@ namespace UI
             }
 
             const int rightColumnX = 838, Rw = screenWidth - rightColumnX - 24;
-            framebuffer.drawFilledRoundedRect(rightColumnX, colY, Rw, colH, 16, Colors::Panel);
-            framebuffer.drawRoundedRect(rightColumnX, colY, Rw, colH, 16, Colors::Border, 1);
+            if (g_themeMode == ThemeMode::RetroDS)
+            {
+                framebuffer.drawRetroDSPanel(rightColumnX, colY, Rw, colH, 16, Colors::Panel);
+            }
+            else
+            {
+                framebuffer.drawFilledRoundedRect(rightColumnX, colY, Rw, colH, 16, Colors::Panel);
+                framebuffer.drawRoundedRect(rightColumnX, colY, Rw, colH, 16, Colors::Border, 1);
+            }
 
             // This panel is exclusively the moveset — 4 move slots (rows 10-13) + held item (row 14).
             infoRowY = colY + 20;
