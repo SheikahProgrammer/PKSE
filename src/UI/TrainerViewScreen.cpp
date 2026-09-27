@@ -632,7 +632,7 @@ namespace UI
             "Language"};
         std::string values[rowCount] = {
             g_autoBackupEnabled ? "On" : "Off",
-            (g_themeMode == ThemeMode::Dark) ? "Dark" : "Light",
+            (g_themeMode == ThemeMode::Dark) ? "Dark" : (g_themeMode == ThemeMode::Light ? "Light" : "Retro DS (Pixel)"),
             g_allowIllegalEdits ? "On" : "Off",
             g_autoLegalizeTransfers ? "On" : "Off",
             g_moveWarn ? "On" : "Off",
@@ -838,7 +838,7 @@ namespace UI
             " illegal=" + (g_allowIllegalEdits ? "ON" : "OFF") +
             " autobackup=" + (g_autoBackupEnabled ? "ON" : "OFF") +
             " movewarn=" + (g_moveWarn ? "ON" : "OFF") +
-            " theme=" + (g_themeMode == ThemeMode::Dark ? "dark" : "light");
+            " theme=" + (g_themeMode == ThemeMode::Dark ? "dark" : (g_themeMode == ThemeMode::Light ? "light" : "retrods"));
         Utils::logTestSession(sessionInfo);
         Utils::logEventToFile("SESSION " + sessionInfo);
         if (bank)
@@ -6800,7 +6800,7 @@ namespace UI
                     if (settingsSelectedRow == SETTINGS_ROW_AUTO_BACKUP)
                         g_autoBackupEnabled = !g_autoBackupEnabled;
                     else if (settingsSelectedRow == SETTINGS_ROW_THEME)
-                        applyTheme(g_themeMode == ThemeMode::Dark ? ThemeMode::Light : ThemeMode::Dark);
+                        applyTheme(g_themeMode == ThemeMode::Dark ? ThemeMode::Light : (g_themeMode == ThemeMode::Light ? ThemeMode::RetroDS : ThemeMode::Dark));
                     else if (settingsSelectedRow == SETTINGS_ROW_ALLOW_ILLEGAL)
                         g_allowIllegalEdits = !g_allowIllegalEdits;
                     else if (settingsSelectedRow == SETTINGS_ROW_AUTO_LEGALIZE)

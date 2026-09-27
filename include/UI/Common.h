@@ -201,7 +201,8 @@ namespace UI
     enum class ThemeMode
     {
         Dark,
-        Light
+        Light,
+        RetroDS
     };
 
     inline ThemeMode g_themeMode = ThemeMode::Dark;
@@ -231,7 +232,7 @@ namespace UI
             CursorMove = Color(86, 148, 244);
             CursorMulti = Color(96, 205, 128);
         }
-        else
+        else if (mode == ThemeMode::Light)
         { // Light
             Background = Color(241, 241, 246);
             Panel = Color(255, 255, 255);
@@ -249,6 +250,25 @@ namespace UI
             CursorMenu = Color(206, 58, 58);
             CursorMove = Color(38, 106, 214);
             CursorMulti = Color(38, 150, 84);
+        }
+        else
+        { // RetroDS (PKSM / Nintendo DS authentic palette)
+            Background = Color(20, 18, 29);   // #14121D (LogoVoid)
+            Panel = Color(27, 36, 71);        // #1B2447 (LogoDeck / Paper)
+            PanelAlt = Color(23, 27, 50);     // #171B32 (LogoDeep / PaperShade)
+            Selected = Color(43, 78, 149);    // #2B4E95 (LogoGrid / SelectFill)
+            Border = Color(43, 78, 149);      // #2B4E95 (PaperEdge - cobalt)
+            Text = Color(244, 248, 255);      // #F4F8FF (Ink)
+            TextDim = Color(168, 186, 220);   // #A8BADC (InkSoft)
+            Accent = Color(66, 191, 232);     // #42BFE8 (LogoCyan / SelectBorder)
+            AccentDim = Color(39, 137, 205);  // #2789CD (LogoBlue)
+            Primary = Color(242, 193, 78);    // #F2C14E (ShinyGold)
+            PrimaryText = Color(20, 18, 29);
+            Warning = Color(242, 193, 78);
+            ShinyStar = Color(242, 193, 78);
+            CursorMenu = Color(240, 104, 104);
+            CursorMove = Color(66, 191, 232);
+            CursorMulti = Color(84, 214, 138);
         }
     }
 }

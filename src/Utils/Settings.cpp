@@ -47,7 +47,12 @@ namespace Utils
 
             if (strcmp(key, "theme") == 0)
             {
-                UI::applyTheme(strcmp(value, "light") == 0 ? UI::ThemeMode::Light : UI::ThemeMode::Dark);
+                if (strcmp(value, "retrods") == 0)
+                    UI::applyTheme(UI::ThemeMode::RetroDS);
+                else if (strcmp(value, "light") == 0)
+                    UI::applyTheme(UI::ThemeMode::Light);
+                else
+                    UI::applyTheme(UI::ThemeMode::Dark);
             }
             else if (strcmp(key, "autoBackup") == 0)
             {
@@ -113,7 +118,12 @@ namespace Utils
             logErrorToFile("Failed to write settings file", settingsPath().c_str());
             return;
         }
-        fprintf(f, "theme=%s\n", (UI::g_themeMode == UI::ThemeMode::Light) ? "light" : "dark");
+        const char *themeStr = "dark";
+        if (UI::g_themeMode == UI::ThemeMode::RetroDS)
+            themeStr = "retrods";
+        else if (UI::g_themeMode == UI::ThemeMode::Light)
+            themeStr = "light";
+        fprintf(f, "theme=%s\n", themeStr);
         fprintf(f, "autoBackup=%d\n", g_autoBackupEnabled ? 1 : 0);
         fprintf(f, "allowIllegal=%d\n", g_allowIllegalEdits ? 1 : 0);
         fprintf(f, "autoLegalize=%d\n", g_autoLegalizeTransfers ? 1 : 0);

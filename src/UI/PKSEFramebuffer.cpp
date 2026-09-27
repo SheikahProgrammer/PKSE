@@ -22,6 +22,7 @@ namespace UI
 {
 
     static constexpr const char *UI_FONT_PATH = "romfs:/fonts/Nunito.ttf";
+    static constexpr const char *PIXEL_FONT_PATH = "romfs:/fonts/NDS12.ttf";
     static constexpr const char *SYMBOLS_FONT_PATH = "romfs:/fonts/NotoSansSymbols.ttf";
     static constexpr const char *SYMBOLS2_FONT_PATH = "romfs:/fonts/NotoSansSymbols2.ttf";
 
@@ -31,6 +32,14 @@ namespace UI
         19.0f, // Body
         26.0f, // Heading
         34.0f, // Title
+    };
+
+    // Pixel point size per TextStyle (NDS12 integer pixel rendering).
+    static constexpr float PIXEL_FONT_SIZES[static_cast<int>(TextStyle::Count)] = {
+        13.0f, // Caption
+        16.0f, // Body
+        22.0f, // Heading
+        28.0f, // Title
     };
 
     /// Nunito's capital height as a fraction of its em -- OS/2 sCapHeight 705 over unitsPerEm 1000,
@@ -45,7 +54,7 @@ namespace UI
 
     PKSEFramebuffer::PKSEFramebuffer()
         : window(nullptr), glContext(nullptr), vg(nullptr),
-          fontSans(-1), fontSym(-1), fontSym2(-1), width(1280), height(720)
+          fontSans(-1), fontPixel(-1), fontSym(-1), fontSym2(-1), width(1280), height(720)
     {
 
         // Request an OpenGL 4.3 core context with a stencil buffer — NanoVG needs stencil for its
@@ -103,12 +112,19 @@ namespace UI
         fontSans = nvgCreateFont(vg, "sans", UI_FONT_PATH);
         if (fontSans < 0)
             logErrorToFile("nvgCreateFont Nunito failed");
+        fontPixel = nvgCreateFont(vg, "pixel", PIXEL_FONT_PATH);
+        if (fontPixel < 0)
+            logErrorToFile("nvgCreateFont NDS12 failed");
         fontSym = nvgCreateFont(vg, "sym", SYMBOLS_FONT_PATH);
         fontSym2 = nvgCreateFont(vg, "sym2", SYMBOLS2_FONT_PATH);
         if (fontSans >= 0 && fontSym >= 0)
             nvgAddFallbackFontId(vg, fontSans, fontSym);
         if (fontSans >= 0 && fontSym2 >= 0)
             nvgAddFallbackFontId(vg, fontSans, fontSym2);
+        if (fontPixel >= 0 && fontSym >= 0)
+            nvgAddFallbackFontId(vg, fontPixel, fontSym);
+        if (fontPixel >= 0 && fontSym2 >= 0)
+            nvgAddFallbackFontId(vg, fontPixel, fontSym2);
 
         /**
          * Then the console's own fonts, so Japanese, Korean and Chinese render at all.
@@ -150,6 +166,8 @@ namespace UI
                                                 static_cast<int>(fontData.size), /*freeData=*/0);
             if (fontId >= 0 && fontSans >= 0)
                 nvgAddFallbackFontId(vg, fontSans, fontId);
+            if (fontId >= 0 && fontPixel >= 0)
+                nvgAddFallbackFontId(vg, fontPixel, fontId);
         }
 
         s_activeFramebuffer = this;
@@ -806,8 +824,9 @@ namespace UI
 
     void PKSEFramebuffer::applyTextStyle(TextStyle style) const
     {
-        nvgFontFaceId(vg, fontSans);
-        nvgFontSize(vg, FONT_SIZES[static_cast<int>(style)]);
+        const bool usePixel = (g_themeMode == ThemeMode::RetroDS && fontPixel >= 0);
+        nvgFontFaceId(vg, usePixel ? fontPixel : fontSans);
+        nvgFontSize(vg, usePixel ? PIXEL_FONT_SIZES[static_cast<int>(style)] : FONT_SIZES[static_cast<int>(style)]);
     }
 
     void PKSEFramebuffer::drawText(int textX, int textY, const char *text, Color color, TextStyle style)
@@ -826,7 +845,9 @@ namespace UI
         nvgFillColor(vg, toNVG(color));
         nvgText(vg, (float)textX, (float)textY, text.c_str(), nullptr);
         // Faux-bold for the display styles (Nunito is loaded regular; re-stroke slightly offset).
-        if (style == TextStyle::Heading || style == TextStyle::Title)
+        // For pixel fonts, we skip faux-bolding so glyph edges stay crisp without blur.
+        const bool usePixel = (g_themeMode == ThemeMode::RetroDS && fontPixel >= 0);
+        if (!usePixel && (style == TextStyle::Heading || style == TextStyle::Title))
             nvgText(vg, textX + 0.6f, (float)textY, text.c_str(), nullptr);
     }
 
@@ -867,7 +888,10 @@ namespace UI
         // a pixel of where it predicts; the hand-picked offsets it replaces left them 5px high.
         float ascender = 0, descender = 0, lineHeightPixels = 0;
         nvgTextMetrics(vg, &ascender, &descender, &lineHeightPixels);
-        const float capitalHeight = FONT_SIZES[static_cast<int>(style)] * NUNITO_CAP_HEIGHT_PER_EM;
+        const bool usePixel = (g_themeMode == ThemeMode::RetroDS && fontPixel >= 0);
+        const float fontSize = usePixel ? PIXEL_FONT_SIZES[static_cast<int>(style)] : FONT_SIZES[static_cast<int>(style)];
+        const float capRatio = usePixel ? 0.70f : NUNITO_CAP_HEIGHT_PER_EM;
+        const float capitalHeight = fontSize * capRatio;
         return static_cast<int>(std::lround(static_cast<float>(centerY) - ascender + capitalHeight / 2.0f));
     }
 

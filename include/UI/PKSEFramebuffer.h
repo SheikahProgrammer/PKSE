@@ -193,6 +193,7 @@ namespace UI
         SDL_GLContext glContext;
         NVGcontext *vg;
         int fontSans;             // Nunito (primary); the symbol fonts are added as fallbacks to it
+        int fontPixel;            // NDS12 (Nintendo DS pixel font); symbols and CJK are fallbacks to it
         int fontSym;              // Noto Sans Symbols (♂ ♀ ★ …)
         int fontSym2;             // Noto Sans Symbols 2 (card suits ♥ …)
         bool frameActive = false; // true between the frame's first draw/clear and flush()
