@@ -85,9 +85,21 @@ namespace UI
     {
         uint8_t red, green, blue, alpha;
 
+        constexpr Color() : red(0), green(0), blue(0), alpha(255) {}
+
         constexpr Color(uint8_t redValue, uint8_t greenValue, uint8_t blueValue,
                         uint8_t alphaValue = 255)
             : red(redValue), green(greenValue), blue(blueValue), alpha(alphaValue) {}
+
+        constexpr bool operator==(const Color &other) const
+        {
+            return red == other.red && green == other.green && blue == other.blue && alpha == other.alpha;
+        }
+
+        constexpr bool operator!=(const Color &other) const
+        {
+            return !(*this == other);
+        }
 
         uint32_t toRGBA8() const
         {
@@ -133,6 +145,9 @@ namespace UI
         constexpr Color EvolveText(10, 36, 18);
         constexpr Color LegalityClean(120, 205, 140);
         constexpr Color LegalityProblem(235, 100, 100);
+        // Nature stat-modifier colors (+10% boosted, -10% lowered) matching the core games and PKForge.
+        constexpr Color NatureUp(255, 140, 124);   // soft coral red
+        constexpr Color NatureDown(124, 184, 255); // soft ice blue
 
         // Semantic theme colors (runtime-swappable by applyTheme())
         // These are mutable so a dark/light toggle can restyle the whole UI without

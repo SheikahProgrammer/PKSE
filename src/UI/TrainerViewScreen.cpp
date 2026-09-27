@@ -4845,6 +4845,16 @@ namespace UI
                 return;
             }
 
+            // ZL / Minus or tapping the Values header toggle button (id 98): cycle hexMode between
+            // 0 (Table), 1 (Stats Radar), 2 (EVs Radar), 3 (IV Judge).
+            if ((buttonsDown & (HidNpadButton_ZL | HidNpadButton_Minus)) || touchedButton == 98)
+            {
+                details.hexMode = (details.hexMode + 1) % 4;
+                if (details.hexMode != 0 && details.selectedField > 5)
+                    details.selectedField = 0;
+                return;
+            }
+
             // Touch: close button (99), or a stat row (0-5) / shiny (6) -> select + act (like A).
             // Close DISCARDS unsaved edits -- restoreEditTarget() rolls the pokemon back to the last
             // Save/open snapshot; the individual Save button (X) is the only commit. The creator is the
@@ -4928,6 +4938,12 @@ namespace UI
                 const bool skipNature = pokemon && !pokemon->hasNature();
                 auto centerMove = [&](int direction) -> int
                 {
+                    if (details.hexMode != 0)
+                    {
+                        // In radar mode, cycle only between the 6 stats (0-5)
+                        int cur = (fieldIndex >= 0 && fieldIndex < 6) ? fieldIndex : 0;
+                        return (cur + direction + 6) % 6;
+                    }
                     int newForm = fieldIndex;
                     for (int index = 0; index < 10; ++index)
                     {
@@ -4949,7 +4965,10 @@ namespace UI
                 if (buttonsDown & HidNpadButton_Right)
                 {
                     // left  -> center
-                    if (inLeft) fieldIndex = details.lastCenterField;
+                    if (inLeft)
+                    {
+                        fieldIndex = (details.hexMode != 0 && details.lastCenterField > 5) ? 0 : details.lastCenterField;
+                    }
                     else if (!inRight)
                     {
                         details.lastCenterField = fieldIndex;
@@ -4959,7 +4978,10 @@ namespace UI
                 if (buttonsDown & HidNpadButton_Left)
                 {
                     // right -> center
-                    if (inRight) fieldIndex = details.lastCenterField;
+                    if (inRight)
+                    {
+                        fieldIndex = (details.hexMode != 0 && details.lastCenterField > 5) ? 0 : details.lastCenterField;
+                    }
                     else if (!inLeft)
                     {
                         details.lastCenterField = fieldIndex;
@@ -4968,10 +4990,17 @@ namespace UI
                 }
                 // Catch every other way the cursor can land on a locked Gender row -- a remembered
                 // lastCenterField, or a pokemon swapped out from under the cursor -- in one place.
-                if (fieldIndex == 8 && skipGender)
-                    fieldIndex = skipNature ? 6 : 7;
-                if (fieldIndex == 7 && skipNature)
-                    fieldIndex = 6;
+                if (details.hexMode == 0)
+                {
+                    if (fieldIndex == 8 && skipGender)
+                        fieldIndex = skipNature ? 6 : 7;
+                    if (fieldIndex == 7 && skipNature)
+                        fieldIndex = 6;
+                }
+                else if (fieldIndex >= 0 && fieldIndex <= 9 && fieldIndex > 5)
+                {
+                    fieldIndex = 0;
+                }
             }
 
             // A on an editable row opens the right editor: stat dialog (0-5), shiny toggle (6), or the

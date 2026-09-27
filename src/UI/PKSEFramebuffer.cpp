@@ -789,6 +789,19 @@ namespace UI
         nvgStrokeColor(vg, toNVG(outline));
         nvgStrokeWidth(vg, 2.0f);
         nvgStroke(vg);
+
+        // Vertex dots on the data polygon
+        for (int index = 0; index < axisCount; ++index)
+        {
+            double value = maxValue > 0.0f ? values[index] / maxValue : 0.0;
+            value = std::clamp(value, 0.06, 1.0);
+            float panelX = axisX(axisAngles[index], hexRadius * value),
+                  py = axisY(axisAngles[index], hexRadius * value);
+            nvgBeginPath(vg);
+            nvgCircle(vg, panelX, py, 3.0f);
+            nvgFillColor(vg, toNVG(outline));
+            nvgFill(vg);
+        }
     }
 
     void PKSEFramebuffer::applyTextStyle(TextStyle style) const

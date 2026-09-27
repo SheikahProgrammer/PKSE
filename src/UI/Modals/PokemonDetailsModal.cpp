@@ -602,32 +602,44 @@ namespace UI
             const int centreColumnX = 474, Cw = 340;
             framebuffer.drawFilledRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Panel);
             framebuffer.drawRoundedRect(centreColumnX, colY, Cw, colH, 16, Colors::Border, 1);
-            framebuffer.drawText(centreColumnX + 18, colY + 16, "Values", Colors::Text, TextStyle::Heading);
 
-            const int nameX = centreColumnX + 18, cIV = centreColumnX + 120, cEV = centreColumnX + 200,
-                      cStat = centreColumnX + 280;
-            int statRowY = colY + 62;
-            // Gen 1/2 store DVs and Stat Experience, not IVs and EVs. Different ranges, different
-            // maths, different names -- so the headers ask the format rather than assuming.
-            const bool gbStats = (p->maxEV() > 255);
-            framebuffer.drawText(cIV, statRowY, (p->maxIV() < 31) ? "DV" : "IV", Colors::TextDim, TextStyle::Caption);
-            framebuffer.drawText(cEV, statRowY, usesAwakeningValues ? "AV" : (gbStats ? "Exp" : "EV"), Colors::TextDim,
-                                 TextStyle::Caption);
-            framebuffer.drawText(cStat, statRowY, "Stat", Colors::TextDim, TextStyle::Caption);
-            statRowY += 24;
+            // Header: Title + Mode Toggle Button
+            const char *modeTitle = (screen.details.hexMode == 0) ? "Values"
+                                  : (screen.details.hexMode == 1) ? "Stats Radar"
+                                  : (screen.details.hexMode == 2) ? "EVs Radar"
+                                                                  : "IV Judge";
+            framebuffer.drawText(centreColumnX + 18, colY + 16, modeTitle, Colors::Text, TextStyle::Heading);
 
-            // Party stats (the 0x14A+ block) read 0 for box mons in the packed formats, so compute the
-            // battle stat from base + IV + EV + EXP-level + (stat)nature when the stored value is 0. Party
-            // mons keep their exact stored stats; LGPE (bstat == null -> its AV formula) is left as-is.
-            // Gen 1 joins Let's Go in opting out of the fallback: its records ALWAYS carry real battle
-            // stats, and its formula is a different one anyway (single Special, a square-root Stat Exp
-            // term, no nature). Computing a modern stat for a Red/Blue Pokemon would be wrong in three
-            // ways at once, so the stored value is the only answer used.
+            // Mode toggle pill button (touch id 98, or ZL controller button)
+            const char *toggleLabel = (screen.details.hexMode == 0) ? "⬡ Radar"
+                                    : (screen.details.hexMode == 1 ? "⬡ EVs"
+                                    : (screen.details.hexMode == 2 ? "⬡ Judge" : "☰ Table"));
+            int toggleTextW, toggleTextH;
+            framebuffer.measureText(toggleLabel, toggleTextW, toggleTextH, TextStyle::Caption);
+            const int toggleBtnW = toggleTextW + 18, toggleBtnH = 26;
+            const int toggleBtnX = centreColumnX + Cw - 18 - toggleBtnW, toggleBtnY = colY + 18;
+            framebuffer.drawFilledRoundedRect(toggleBtnX, toggleBtnY, toggleBtnW, toggleBtnH, toggleBtnH / 2, Colors::PanelAlt);
+            framebuffer.drawRoundedRect(toggleBtnX, toggleBtnY, toggleBtnW, toggleBtnH, toggleBtnH / 2, Colors::Accent, 1);
+            framebuffer.drawText(toggleBtnX + 9, toggleBtnY + (toggleBtnH - toggleTextH) / 2, toggleLabel, Colors::Accent, TextStyle::Caption);
+            screen.touchButtons.push_back({98, toggleBtnX, toggleBtnY, toggleBtnW, toggleBtnH});
+
+            // Nature calculation & highlights
+            static const int natIdx[6] = {-1, 0, 1, 3, 4, 2};
+            const int raisedStat = p->hasNature() ? (p->statNature() / 5) : -1;
+            const int downStat = p->hasNature() ? (p->statNature() % 5) : -1;
+            auto statNatureColor = [&](int statIndex) -> Color
+            {
+                if (!p->hasNature() || raisedStat == downStat)
+                    return Colors::Text;
+                if (natIdx[statIndex] == raisedStat)
+                    return Colors::NatureUp;
+                if (natIdx[statIndex] == downStat)
+                    return Colors::NatureDown;
+                return Colors::Text;
+            };
+
             const bool statIsGG =
                 (p->getGameGroup() == Enums::GameVersion::GG) || (p->getGameGroup() == Enums::GameVersion::RBY);
-            // THE MON'S OWN GROUP, not a modern table. Computing a fallback stat out of the Gen 8/9 base
-            // stats shows a Gen 2 through Gen 7 Pokemon with an unfilled stat tail numbers derived from a
-            // table its game never had.
             const Pokemon::PersonalRecord &record =
                 Pokemon::getPersonalRecord(p->getGameGroup(), p->speciesID(), p->form());
             const Pokemon::PersonalRecord *bstat = (statIsGG || record.hp == 0) ? nullptr : &record;
@@ -636,18 +648,12 @@ namespace UI
                                           : Pokemon::getLevelFromExp(p->exp(), Pokemon::getGrowthRate(p->speciesID()));
             auto dispStat = [&](int statIndex, uint16_t stored) -> int
             {
-                // party pokemon / LGPE / no base data -> stored value
                 if (stored != 0 || !bstat) return stored;
                 const int base = (statIndex == 0) ? bstat->hp : (statIndex == 1) ? bstat->atk
                                                       : (statIndex == 2)   ? bstat->def
                                                       : (statIndex == 3)   ? bstat->spa
                                                       : (statIndex == 4)   ? bstat->spd
-                                                                     : bstat->spe;
-                // effectiveIV, not ivXXX: a Hyper Trained stat is played at a maximal IV while the
-                // stored IV stays put, so computing this row from the raw value shows a box Pokemon a
-                // stat lower than the one the game gives it. This row order (HP, Atk, Def, SpA, SpD,
-                // Spe) happens to match the flag bit order exactly, which is why index passes straight
-                // through -- it does NOT elsewhere, so do not copy this call shape without checking.
+                                                                           : bstat->spe;
                 int ivValue = 0, ev = 0;
                 switch (statIndex)
                 {
@@ -677,18 +683,13 @@ namespace UI
                     break;
                 }
                 int value = ((2 * base + ivValue + ev / 4) * dispLevel) / 100;
-                // HP uses a distinct formula
                 if (statIndex == 0) return value + dispLevel + 10;
                 value += 5;
-                // Nature (mint-aware) modifier. natIdx maps a display row to its nature stat index
-                // (nature order is Atk, Def, Spe, SpA, SpD); HP (index 0) is never nature-affected.
-                static const int natIdx[6] = {-1, 0, 1, 3, 4, 2};
-                const int raisedStat = p->statNature() / 5, down = p->statNature() % 5;
-                if (raisedStat != down)
+                if (raisedStat != downStat)
                 {
                     if (natIdx[statIndex] == raisedStat)
                         value = value * 110 / 100;
-                    else if (natIdx[statIndex] == down)
+                    else if (natIdx[statIndex] == downStat)
                         value = value * 90 / 100;
                 }
                 return value;
@@ -707,123 +708,325 @@ namespace UI
                 {"SpD", p->ivSPD(), usesAwakeningValues ? p->avSPD() : p->evSPD(), dispStat(4, p->statSPD())},
                 {"Spe", p->ivSPE(), usesAwakeningValues ? p->avSPE() : p->evSPE(), dispStat(5, p->statSPE())},
             };
-            const int statRowH = 44;
-            for (int index = 0; index < 6; ++index)
-            {
-                const bool scrollOffset = (selectedIndex == index);
-                if (scrollOffset)
-                {
-                    framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                Colors::Accent, 2);
-                }
-                framebuffer.drawText(nameX, statRowY, rows[index].label, scrollOffset ? Colors::Text : Colors::TextDim);
-                framebuffer.drawText(cIV, statRowY, std::to_string(rows[index].ivValue), Colors::Text);
-                // The stored IV is what is shown -- it is what the editor writes and what legality
-                // matches -- so a Hyper Trained stat would otherwise read as a low IV next to a high
-                // Stat with nothing to explain the gap. "HT" is what PKHeX calls it.
-                if (p->isHyperTrained(index))
-                    framebuffer.drawText(cIV + 34, statRowY, "HT", Colors::Accent, TextStyle::Caption);
-                framebuffer.drawText(cEV, statRowY, std::to_string(rows[index].evOrAvValue), Colors::Text);
-                framebuffer.drawText(cStat, statRowY, std::to_string(rows[index].statValue), Colors::Accent);
-                screen.touchButtons.push_back({index, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
-                statRowY += statRowH;
-            }
 
-            // Shiny toggle row (selectable index 6).
-            statRowY += 10;
+            if (screen.details.hexMode == 0)
             {
-                const bool scrollOffset = (selectedIndex == 6);
-                if (scrollOffset)
+                const int nameX = centreColumnX + 18, cIV = centreColumnX + 120, cEV = centreColumnX + 200,
+                          cStat = centreColumnX + 280;
+                int statRowY = colY + 62;
+                const bool gbStats = (p->maxEV() > 255);
+                framebuffer.drawText(cIV, statRowY, (p->maxIV() < 31) ? "DV" : "IV", Colors::TextDim, TextStyle::Caption);
+                framebuffer.drawText(cEV, statRowY, usesAwakeningValues ? "AV" : (gbStats ? "Exp" : "EV"), Colors::TextDim,
+                                     TextStyle::Caption);
+                framebuffer.drawText(cStat, statRowY, "Stat", Colors::TextDim, TextStyle::Caption);
+                statRowY += 24;
+
+                const int statRowH = 44;
+                for (int index = 0; index < 6; ++index)
                 {
-                    framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                Colors::Accent, 2);
+                    const bool scrollOffset = (selectedIndex == index);
+                    if (scrollOffset)
+                    {
+                        framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                          Colors::Selected);
+                        framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                    Colors::Accent, 2);
+                    }
+                    Color lblColor = scrollOffset ? Colors::Text : statNatureColor(index);
+                    framebuffer.drawText(nameX, statRowY, rows[index].label, lblColor);
+                    if (p->hasNature() && raisedStat != downStat)
+                    {
+                        if (natIdx[index] == raisedStat)
+                            framebuffer.drawText(nameX + 38, statRowY + 1, "+", Colors::NatureUp, TextStyle::Caption);
+                        else if (natIdx[index] == downStat)
+                            framebuffer.drawText(nameX + 38, statRowY + 1, "-", Colors::NatureDown, TextStyle::Caption);
+                    }
+                    framebuffer.drawText(cIV, statRowY, std::to_string(rows[index].ivValue), Colors::Text);
+                    if (p->isHyperTrained(index))
+                        framebuffer.drawText(cIV + 34, statRowY, "HT", Colors::Accent, TextStyle::Caption);
+                    framebuffer.drawText(cEV, statRowY, std::to_string(rows[index].evOrAvValue), Colors::Text);
+                    Color valColor = (statNatureColor(index) == Colors::Text) ? Colors::Accent : statNatureColor(index);
+                    framebuffer.drawText(cStat, statRowY, std::to_string(rows[index].statValue), valColor);
+                    screen.touchButtons.push_back({index, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
+                    statRowY += statRowH;
                 }
-                framebuffer.drawText(nameX, statRowY, "Shiny", scrollOffset ? Colors::Text : Colors::TextDim);
-                // Right-aligned to the panel edge, flush with Nature/Gender/Level below it.
+
+                // Shiny toggle row (selectable index 6).
+                statRowY += 10;
                 {
+                    const bool scrollOffset = (selectedIndex == 6);
+                    if (scrollOffset)
+                    {
+                        framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                          Colors::Selected);
+                        framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                    Colors::Accent, 2);
+                    }
+                    framebuffer.drawText(nameX, statRowY, "Shiny", scrollOffset ? Colors::Text : Colors::TextDim);
                     const char *sv = isShiny ? "Yes" : "No";
                     int statTextWidth, sh;
                     framebuffer.measureText(sv, statTextWidth, sh);
                     framebuffer.drawText(centreColumnX + Cw - 18 - statTextWidth, statRowY, sv,
                                          isShiny ? Colors::ShinyStar : Colors::Text);
+                    screen.touchButtons.push_back({6, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
+                    statRowY += statRowH;
                 }
-                screen.touchButtons.push_back({6, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
-                statRowY += statRowH;
-            }
 
-            // Nature row (selectable index 7) — cycled with Left/Right (or A). Hidden for formats with
-            // no nature at all: nature 0 is Hardy, a real nature, so an ungated row would claim one.
-            statRowY += 6;
-            if (p->hasNature())
-            {
-                const bool scrollOffset = (selectedIndex == 7);
-                if (scrollOffset)
+                // Nature row (selectable index 7) — cycled with Left/Right (or A).
+                statRowY += 6;
+                if (p->hasNature())
                 {
-                    framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                Colors::Accent, 2);
+                    const bool scrollOffset = (selectedIndex == 7);
+                    if (scrollOffset)
+                    {
+                        framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                          Colors::Selected);
+                        framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                    Colors::Accent, 2);
+                    }
+                    framebuffer.drawText(nameX, statRowY, "Nature", scrollOffset ? Colors::Text : Colors::TextDim);
+                    std::string natureName = getNatureName(p->nature());
+                    int natureTextWidth, nh;
+                    framebuffer.measureText(natureName, natureTextWidth, nh);
+                    framebuffer.drawText(centreColumnX + Cw - 18 - natureTextWidth, statRowY, natureName, Colors::Accent);
+                    screen.touchButtons.push_back({7, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
+                    statRowY += statRowH;
                 }
-                framebuffer.drawText(nameX, statRowY, "Nature", scrollOffset ? Colors::Text : Colors::TextDim);
-                std::string natureName = getNatureName(p->nature());
-                int natureTextWidth, nh;
-                framebuffer.measureText(natureName, natureTextWidth, nh);
-                framebuffer.drawText(centreColumnX + Cw - 18 - natureTextWidth, statRowY, natureName, Colors::Accent);
-                screen.touchButtons.push_back({7, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
-                statRowY += statRowH;
-            }
 
-            // Gender row (selectable index 8) — A opens the picker. READ-ONLY for a fixed-gender species
-            // (male-only Braviary, female-only Miltank, genderless Magnemite): the value still shows, but
-            // there is no highlight and no touch target, and the cursor steps over it — the same way the
-            // left column handles a read-only row by not listing it. See TrainerViewScreen::genderEditable.
-            statRowY += 6;
-            {
-                const bool editable = screen.genderEditable(*p);
-                const bool scrollOffset = editable && (selectedIndex == 8);
-                if (scrollOffset)
+                // Gender row (selectable index 8)
+                statRowY += 6;
                 {
-                    framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                Colors::Accent, 2);
+                    const bool editable = screen.genderEditable(*p);
+                    const bool scrollOffset = editable && (selectedIndex == 8);
+                    if (scrollOffset)
+                    {
+                        framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                          Colors::Selected);
+                        framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                    Colors::Accent, 2);
+                    }
+                    framebuffer.drawText(nameX, statRowY, "Gender", scrollOffset ? Colors::Text : Colors::TextDim);
+                    const uint8_t genderValue = p->gender();
+                    const char *gname = (genderValue == 0) ? "Male" : (genderValue == 1) ? "Female"
+                                                                       : "Genderless";
+                    const Color genderColor = (genderValue == 0) ? Colors::Blue : (genderValue == 1) ? Colors::Magenta
+                                                                          : Colors::Text;
+                    int genderTextWidth, gh;
+                    framebuffer.measureText(gname, genderTextWidth, gh);
+                    framebuffer.drawText(centreColumnX + Cw - 18 - genderTextWidth, statRowY, gname, genderColor);
+                    if (editable)
+                        screen.touchButtons.push_back({8, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
+                    statRowY += statRowH;
                 }
-                framebuffer.drawText(nameX, statRowY, "Gender", scrollOffset ? Colors::Text : Colors::TextDim);
-                const uint8_t genderValue = p->gender();
-                const char *gname = (genderValue == 0) ? "Male" : (genderValue == 1) ? "Female"
-                                                                   : "Genderless";
-                const Color genderColor = (genderValue == 0) ? Colors::Blue : (genderValue == 1) ? Colors::Magenta
-                                                                      : Colors::Text;
-                int genderTextWidth, gh;
-                framebuffer.measureText(gname, genderTextWidth, gh);
-                framebuffer.drawText(centreColumnX + Cw - 18 - genderTextWidth, statRowY, gname, genderColor);
-                if (editable)
-                    screen.touchButtons.push_back({8, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
-                statRowY += statRowH;
-            }
 
-            // Level row (selectable index 9) — A opens the 1-100 level picker (changing level recomputes stats).
-            statRowY += 6;
-            {
-                const bool scrollOffset = (selectedIndex == 9);
-                if (scrollOffset)
+                // Level row (selectable index 9)
+                statRowY += 6;
                 {
-                    framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                      Colors::Selected);
-                    framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
-                                                Colors::Accent, 2);
+                    const bool scrollOffset = (selectedIndex == 9);
+                    if (scrollOffset)
+                    {
+                        framebuffer.drawFilledRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                          Colors::Selected);
+                        framebuffer.drawRoundedRect(centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6, 10,
+                                                    Colors::Accent, 2);
+                    }
+                    framebuffer.drawText(nameX, statRowY, "Level", scrollOffset ? Colors::Text : Colors::TextDim);
+                    const std::string lvlStr = std::to_string(dispLevel);
+                    int labelWidth, lh;
+                    framebuffer.measureText(lvlStr, labelWidth, lh);
+                    framebuffer.drawText(centreColumnX + Cw - 18 - labelWidth, statRowY, lvlStr, Colors::Accent);
+                    screen.touchButtons.push_back({9, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
+                    statRowY += statRowH;
                 }
-                framebuffer.drawText(nameX, statRowY, "Level", scrollOffset ? Colors::Text : Colors::TextDim);
-                const std::string lvlStr = std::to_string(dispLevel);
-                int labelWidth, lh;
-                framebuffer.measureText(lvlStr, labelWidth, lh);
-                framebuffer.drawText(centreColumnX + Cw - 18 - labelWidth, statRowY, lvlStr, Colors::Accent);
-                screen.touchButtons.push_back({9, centreColumnX + 8, statRowY - 6, Cw - 16, statRowH - 6});
-                statRowY += statRowH;
+            }
+            else
+            {
+                // Hexagon radar in HOME vertex order: [HP(0), Atk(1), Def(2), Spe(5), SpD(4), SpA(3)]
+                static const int vStat[6] = {0, 1, 2, 5, 4, 3};
+                static const char *statAbbreviations[6] = {"HP", "Atk", "Def", "Spe", "SpD", "SpA"};
+                static const double axisAngles[6] = {90.0, 30.0, -30.0, 270.0, 210.0, 150.0};
+                const double piRadians = 3.14159265358979323846;
+
+                const int hexCx = centreColumnX + Cw / 2;
+                const int hexCy = colY + 160;
+                const int hexR = 84;
+
+                float hexValues[6];
+                float maxValue = 1.0f;
+                Color fillColor, strokeColor;
+
+                if (screen.details.hexMode == 1) // Battle Stats
+                {
+                    maxValue = 1.0f;
+                    for (int i = 0; i < 6; ++i)
+                    {
+                        hexValues[i] = static_cast<float>(rows[vStat[i]].statValue);
+                        if (hexValues[i] > maxValue) maxValue = hexValues[i];
+                    }
+                    fillColor = Color(Colors::Accent.red, Colors::Accent.green, Colors::Accent.blue, 110);
+                    strokeColor = Colors::Accent;
+                }
+                else if (screen.details.hexMode == 2) // EVs / AVs
+                {
+                    maxValue = usesAwakeningValues ? 200.0f : 252.0f;
+                    for (int i = 0; i < 6; ++i)
+                        hexValues[i] = static_cast<float>(rows[vStat[i]].evOrAvValue);
+                    fillColor = Color(Colors::Primary.red, Colors::Primary.green, Colors::Primary.blue, 110);
+                    strokeColor = Colors::Primary;
+                }
+                else // Mode 3: IV Judge
+                {
+                    maxValue = (p->maxIV() < 31) ? 15.0f : 31.0f;
+                    for (int i = 0; i < 6; ++i)
+                        hexValues[i] = static_cast<float>(rows[vStat[i]].ivValue);
+                    fillColor = Color(Colors::LegalityClean.red, Colors::LegalityClean.green, Colors::LegalityClean.blue, 110);
+                    strokeColor = Colors::LegalityClean;
+                }
+
+                framebuffer.drawStatHexagon(hexCx, hexCy, hexR, hexValues, 6, maxValue,
+                                            fillColor, Colors::Border, strokeColor);
+
+                // Vertex labels & touch targets
+                for (int v = 0; v < 6; ++v)
+                {
+                    const int si = vStat[v];
+                    const double rad = axisAngles[v] * piRadians / 180.0;
+                    const int vx = hexCx + static_cast<int>(std::lround(std::cos(rad) * (hexR + 18)));
+                    const int vy = hexCy - static_cast<int>(std::lround(std::sin(rad) * (hexR + 18)));
+
+                    std::string labelText = statAbbreviations[v];
+                    std::string valText;
+                    if (screen.details.hexMode == 1)
+                        valText = std::to_string(rows[si].statValue);
+                    else if (screen.details.hexMode == 2)
+                        valText = std::to_string(rows[si].evOrAvValue);
+                    else
+                    {
+                        if (p->isHyperTrained(si))
+                            valText = "HT";
+                        else if (rows[si].ivValue == 31)
+                            valText = "Best";
+                        else if (rows[si].ivValue == 30)
+                            valText = "Fant.";
+                        else if (rows[si].ivValue == 0)
+                            valText = "No Good";
+                        else
+                            valText = std::to_string(rows[si].ivValue);
+                    }
+
+                    std::string fullText = labelText + " " + valText;
+                    int textW, textH;
+                    framebuffer.measureText(fullText, textW, textH, TextStyle::Caption);
+
+                    const double cosVal = std::cos(rad);
+                    int lx = (cosVal > 0.3) ? vx + 4 : (cosVal < -0.3) ? vx - 4 - textW : vx - textW / 2;
+                    int ly = (v == 0) ? vy - textH : (v == 3) ? vy + 2 : vy - textH / 2;
+
+                    const bool isSelected = (selectedIndex == si);
+                    if (isSelected)
+                    {
+                        framebuffer.drawFilledRoundedRect(lx - 4, ly - 2, textW + 8, textH + 4, 6, Colors::Selected);
+                        framebuffer.drawRoundedRect(lx - 4, ly - 2, textW + 8, textH + 4, 6, Colors::Accent, 1);
+                    }
+
+                    Color capColor = isSelected ? Colors::Text : statNatureColor(si);
+                    framebuffer.drawText(lx, ly, fullText, capColor, TextStyle::Caption);
+
+                    // Touch target for this vertex (stat index 0-5)
+                    screen.touchButtons.push_back({si, lx - 8, ly - 6, textW + 16, textH + 12});
+                }
+
+                // Summary card below the radar
+                int cardY = hexCy + hexR + 42;
+                const int cardX = centreColumnX + 14, cardW = Cw - 28;
+
+                if (screen.details.hexMode == 1) // Stats: Total + BST + Nature recap
+                {
+                    int totalStats = 0;
+                    for (int i = 0; i < 6; ++i) totalStats += rows[i].statValue;
+                    int bst = 0;
+                    if (bstat) bst = bstat->hp + bstat->atk + bstat->def + bstat->spa + bstat->spd + bstat->spe;
+
+                    framebuffer.drawFilledRoundedRect(cardX, cardY, cardW, 84, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(cardX, cardY, cardW, 84, 10, Colors::Border, 1);
+                    framebuffer.drawText(cardX + 14, cardY + 12, "Total Battle Stats", Colors::TextDim, TextStyle::Caption);
+                    framebuffer.drawText(cardX + cardW - 14 - 60, cardY + 12, std::to_string(totalStats), Colors::Accent, TextStyle::Caption);
+
+                    framebuffer.drawText(cardX + 14, cardY + 36, "Base Stat Total (BST)", Colors::TextDim, TextStyle::Caption);
+                    framebuffer.drawText(cardX + cardW - 14 - 60, cardY + 36, std::to_string(bst), Colors::Text, TextStyle::Caption);
+
+                    if (p->hasNature())
+                    {
+                        std::string natSummary = std::string("Nature: ") + getNatureName(p->nature());
+                        if (raisedStat != downStat)
+                        {
+                            static const char *natStatNames[5] = {"Atk", "Def", "Spe", "SpA", "SpD"};
+                            natSummary += " (+" + std::string(natStatNames[raisedStat]) + " / -" + std::string(natStatNames[downStat]) + ")";
+                        }
+                        framebuffer.drawText(cardX + 14, cardY + 60, natSummary, Colors::TextDim, TextStyle::Caption);
+                    }
+                    cardY += 96;
+
+                    framebuffer.drawText(cardX + 6, cardY, "Tap any vertex or press A to edit stat", Colors::TextDim, TextStyle::Caption);
+                }
+                else if (screen.details.hexMode == 2) // EVs: Total gauge + EV investment
+                {
+                    int totalEV = 0;
+                    for (int i = 0; i < 6; ++i) totalEV += rows[i].evOrAvValue;
+                    const int maxEVTotal = usesAwakeningValues ? 1200 : 510;
+
+                    framebuffer.drawFilledRoundedRect(cardX, cardY, cardW, 96, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(cardX, cardY, cardW, 96, 10, Colors::Border, 1);
+                    framebuffer.drawText(cardX + 14, cardY + 12, usesAwakeningValues ? "Awakening Values" : "Effort Values (EV)", Colors::Text, TextStyle::Caption);
+                    std::string evFrac = std::to_string(totalEV) + " / " + std::to_string(maxEVTotal);
+                    int ew, eh;
+                    framebuffer.measureText(evFrac, ew, eh, TextStyle::Caption);
+                    framebuffer.drawText(cardX + cardW - 14 - ew, cardY + 12, evFrac, Colors::Primary, TextStyle::Caption);
+
+                    // Gauge bar
+                    const int gaugeX = cardX + 14, gaugeY = cardY + 36, gaugeW = cardW - 28, gaugeH = 10;
+                    framebuffer.drawFilledRoundedRect(gaugeX, gaugeY, gaugeW, gaugeH, 5, Colors::Border);
+                    float evProgress = std::clamp(static_cast<float>(totalEV) / maxEVTotal, 0.0f, 1.0f);
+                    if (evProgress > 0.01f)
+                    {
+                        framebuffer.drawFilledRoundedRect(gaugeX, gaugeY, static_cast<int>(gaugeW * evProgress), gaugeH, 5, Colors::Primary);
+                    }
+
+                    int remainingEV = std::max(0, maxEVTotal - totalEV);
+                    framebuffer.drawText(cardX + 14, cardY + 56, "Remaining: " + std::to_string(remainingEV) + " points", Colors::TextDim, TextStyle::Caption);
+                    framebuffer.drawText(cardX + 14, cardY + 76, "Max per stat: 252 (Gen 6+) / 255 (Gen 3-5)", Colors::TextDim, TextStyle::Caption);
+                    cardY += 108;
+
+                    framebuffer.drawText(cardX + 6, cardY, "Tap any vertex or press A to edit stat", Colors::TextDim, TextStyle::Caption);
+                }
+                else // Mode 3: IV Judge & Potential
+                {
+                    int totalIV = 0, perfectCount = 0;
+                    for (int i = 0; i < 6; ++i)
+                    {
+                        totalIV += rows[i].ivValue;
+                        if (rows[i].ivValue >= 31 || p->isHyperTrained(i)) perfectCount++;
+                    }
+
+                    framebuffer.drawFilledRoundedRect(cardX, cardY, cardW, 96, 10, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(cardX, cardY, cardW, 96, 10, Colors::Border, 1);
+                    framebuffer.drawText(cardX + 14, cardY + 12, "Judge Evaluation", Colors::Text, TextStyle::Caption);
+                    std::string ivFrac = std::to_string(totalIV) + " / 186 (" + std::to_string(perfectCount) + "V)";
+                    int iw, ih;
+                    framebuffer.measureText(ivFrac, iw, ih, TextStyle::Caption);
+                    framebuffer.drawText(cardX + cardW - 14 - iw, cardY + 12, ivFrac, Colors::LegalityClean, TextStyle::Caption);
+
+                    const char *potentialText = (totalIV >= 151) ? "Outstanding potential!"
+                                              : (totalIV >= 121) ? "Relatively superior potential"
+                                              : (totalIV >= 91)  ? "Above average potential"
+                                                                 : "Decent potential";
+                    framebuffer.drawText(cardX + 14, cardY + 36, potentialText, Colors::LegalityClean, TextStyle::Caption);
+                    framebuffer.drawText(cardX + 14, cardY + 56, "31 = Best  |  30 = Fantastic  |  0 = No Good", Colors::TextDim, TextStyle::Caption);
+                    framebuffer.drawText(cardX + 14, cardY + 76, "HT = Hyper Trained (Bottle Cap maxed)", Colors::TextDim, TextStyle::Caption);
+                    cardY += 108;
+
+                    framebuffer.drawText(cardX + 6, cardY, "Tap any vertex or press A to edit stat", Colors::TextDim, TextStyle::Caption);
+                }
             }
 
             const int rightColumnX = 838, Rw = screenWidth - rightColumnX - 24;
@@ -910,14 +1113,15 @@ namespace UI
                 // than discarding on the spot, so "Discard" would be a promise it does not keep. Dirtiness
                 // is already signalled by the top-bar "Unsaved changes" marker.
                 const std::string backSeg = "B: Close";
+                const std::string modeSeg = "ZL: Stat Mode  |  ";
                 if (selectedIndex >= 15)
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + "Right: Values  |  " +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg + "Right: Values  |  " +
                               saveSeg + "  |  " + backSeg;
                 else if (selectedIndex >= 10)
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + "Left: Values  |  " +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg + "Left: Values  |  " +
                               saveSeg + "  |  " + backSeg;
                 else
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg +
                               "Left: Details  |  Right: Moves  |  " + saveSeg + "  |  " + backSeg;
                 drawNavBar(framebuffer, navHint);
                 }
