@@ -23,27 +23,25 @@ def main():
     
     dest_map = {}
     
-    # 1. Big Pokemon Sprites (b_*) -> {*}
+    # 1. Base fallback: Big Pokemon Sprites (b_*) -> {*}
     for p in glob.glob(os.path.join(src_big, "b_*.png")):
         fn = os.path.basename(p)[2:] # strip b_
         dest_map[fn] = p
         
-    # 2. Big Shiny Sprites (b_*s) -> {*s}
+    # 2. Base fallback: Big Shiny Sprites (b_*s) -> {*s}
     for p in glob.glob(os.path.join(src_big_s, "b_*.png")):
         fn = os.path.basename(p)[2:] # strip b_
         dest_map[fn] = p
         
-    # 3. Artwork Pokemon Sprites (a_*) -> {*} (adds Gen 9 species 906-1025)
+    # 3. OVERWRITE with Artwork Pokemon Sprites (a_*) -> {*} (larger, higher-detail DS sprites)
     for p in glob.glob(os.path.join(src_art, "a_*.png")):
         fn = os.path.basename(p)[2:] # strip a_
-        if fn not in dest_map:
-            dest_map[fn] = p
+        dest_map[fn] = p
             
-    # 4. Artwork Shiny Sprites (a_*s) -> {*s} (adds Gen 9 shinies)
+    # 4. OVERWRITE with Artwork Shiny Sprites (a_*s) -> {*s}
     for p in glob.glob(os.path.join(src_art_s, "a_*.png")):
         fn = os.path.basename(p)[2:] # strip a_
-        if fn not in dest_map:
-            dest_map[fn] = p
+        dest_map[fn] = p
 
     # 5. Base aliases for special species
     if "869-0-0.png" in dest_map:

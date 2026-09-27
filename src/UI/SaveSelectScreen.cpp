@@ -820,6 +820,14 @@ namespace UI
         if (stat(p2.c_str(), &st) == 0)
             return p2;
 
+        // 2b. Match with "Pokemon " prefix in icons/covers
+        std::string p1b = "sdmc:/tico/assets/icons/" + platLower + "/Pokemon " + label + ".png";
+        if (stat(p1b.c_str(), &st) == 0)
+            return p1b;
+        std::string p2b = "sdmc:/tico/assets/covers/" + platLower + "/Pokemon " + label + ".jpg";
+        if (stat(p2b.c_str(), &st) == 0)
+            return p2b;
+
         // 3. Extract stem from savePath filename
         size_t lastSlash = savePath.find_last_of('/');
         std::string saveStem = (lastSlash != std::string::npos) ? savePath.substr(lastSlash + 1) : savePath;
@@ -834,6 +842,61 @@ namespace UI
         std::string p4 = "sdmc:/tico/assets/covers/" + platLower + "/" + saveStem + ".jpg";
         if (stat(p4.c_str(), &st) == 0)
             return p4;
+
+        // 3b. Search tico assets directories for matching ROM names (e.g. "Pokemon Alpha Sapphire (USA)...")
+        std::string iconDir = "sdmc:/tico/assets/icons/" + platLower;
+        DIR *dI = opendir(iconDir.c_str());
+        if (dI)
+        {
+            std::string lblLower = label;
+            for (char &c : lblLower)
+                c = std::tolower(static_cast<unsigned char>(c));
+            struct dirent *ent;
+            while ((ent = readdir(dI)) != nullptr)
+            {
+                if (ent->d_name[0] == '.')
+                    continue;
+                std::string fn = ent->d_name;
+                std::string fnLower = fn;
+                for (char &c : fnLower)
+                    c = std::tolower(static_cast<unsigned char>(c));
+                if (fnLower.find(lblLower) != std::string::npos && fn.size() > 4 &&
+                    fn.compare(fn.size() - 4, 4, ".png") == 0)
+                {
+                    std::string match = iconDir + "/" + fn;
+                    closedir(dI);
+                    return match;
+                }
+            }
+            closedir(dI);
+        }
+
+        std::string coverDir = "sdmc:/tico/assets/covers/" + platLower;
+        DIR *dC = opendir(coverDir.c_str());
+        if (dC)
+        {
+            std::string lblLower = label;
+            for (char &c : lblLower)
+                c = std::tolower(static_cast<unsigned char>(c));
+            struct dirent *ent;
+            while ((ent = readdir(dC)) != nullptr)
+            {
+                if (ent->d_name[0] == '.')
+                    continue;
+                std::string fn = ent->d_name;
+                std::string fnLower = fn;
+                for (char &c : fnLower)
+                    c = std::tolower(static_cast<unsigned char>(c));
+                if (fnLower.find(lblLower) != std::string::npos &&
+                    (fn.find(".jpg") != std::string::npos || fn.find(".png") != std::string::npos))
+                {
+                    std::string match = coverDir + "/" + fn;
+                    closedir(dC);
+                    return match;
+                }
+            }
+            closedir(dC);
+        }
 
         // 4. Bundled RomFS fallback for vanilla and romhack games
         std::string l = label;

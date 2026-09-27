@@ -216,9 +216,9 @@ namespace UI
                     // bump the box when pixel art is active so retro icons have proper visual weight.
                     const bool pixelActive = (g_spriteStyle == SpriteStyle::PixelArt) ||
                                              (g_spriteStyle == SpriteStyle::Auto && g_themeMode == ThemeMode::RetroDS);
-                    const int spriteBoxSize = pixelActive ? 112 : 96;
+                    const int spriteBoxSize = pixelActive ? 120 : 96;
                     int spriteX = cardX + colW - pad - spriteBoxSize;
-                    int spriteY = cardY + 30;
+                    int spriteY = pixelActive ? (cardY + 24) : (cardY + 30);
                     framebuffer.drawSpriteIdle(spriteX, spriteY, spriteBoxSize, spriteBoxSize, sprite->width,
                                                sprite->height, sprite->data, sprite->channels,
                                                static_cast<float>(index) * 1.1f);
