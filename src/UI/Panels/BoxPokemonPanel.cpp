@@ -172,7 +172,35 @@ namespace UI
 
                     if (empty)
                     {
-                        framebuffer.drawCircle(centerX, centerY, discR, Colors::Border, 1);
+                        if (grabbed && carried)
+                        {
+                            // Vacated slot carry ghost: dimmed base ring + ghost sprite at 35% alpha
+                            framebuffer.drawCircle(centerX, centerY, discR,
+                                                   Color(Colors::Border.red, Colors::Border.green, Colors::Border.blue, 120), 1);
+                            const bool carriedShiny = carried->isShiny(carried->id32(), carried->species());
+                            const int markerSize = std::min(static_cast<int>(discR * 1.8), colPitch - 6);
+                            if (carried->isEgg())
+                            {
+                                framebuffer.drawEgg(centerX, centerY, markerSize);
+                            }
+                            else
+                            {
+                                Sprite *sprite = SpriteManager::getIconSprite(carried->speciesID(), carried->form(), carriedShiny);
+                                if (sprite && sprite->data)
+                                {
+                                    framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
+                                                                sprite->width, sprite->height, markerSize, markerSize,
+                                                                sprite->data, sprite->channels, 90);
+                                }
+                            }
+                            // Origin ring marker (warm primary amber)
+                            framebuffer.drawCircle(centerX, centerY, discR + 2,
+                                                   Color(Colors::Primary.red, Colors::Primary.green, Colors::Primary.blue, 180), 2);
+                        }
+                        else
+                        {
+                            framebuffer.drawCircle(centerX, centerY, discR, Colors::Border, 1);
+                        }
                     }
                     else
                     {
@@ -236,6 +264,20 @@ namespace UI
                 if (carried)
                     drawLiftedMon(framebuffer, carried, selCx, selDiscTop + selDiscR + bobOffset, selDiscR);
                 framebuffer.drawPointerCursor(selCx, selDiscTop - 3 + bobOffset, GRID_CURSOR_HEIGHT, cursorColor);
+
+                // Corner brackets (DS crosshair reticle) framing the focused slot
+                const float pulse = static_cast<float>(std::sin(nowT * 5.0) * 1.5);
+                Color bracketColor;
+                if (g_themeMode == ThemeMode::RetroDS)
+                    bracketColor = screen.swapActive ? Colors::Primary : Color(232, 56, 72); // Authentic Ruby Red in RetroDS
+                else
+                    bracketColor = screen.swapActive ? Colors::Primary : Colors::Accent;
+
+                const int bracketMargin = 4;
+                const int bracketSize = (selDiscR + bracketMargin) * 2;
+                const int bracketX = selCx - selDiscR - bracketMargin;
+                const int bracketY = (selDiscTop + selDiscR) - selDiscR - bracketMargin;
+                framebuffer.drawCornerBrackets(bracketX, bracketY, bracketSize, bracketSize, 12, 3, bracketColor, pulse);
             }
             else if (headerFocused)
             {
@@ -243,6 +285,8 @@ namespace UI
                 // off the top row never leaves the cursor invisible.
                 framebuffer.drawPointerCursor(boxPokemonX + boxPokemonWidth / 2, pillY - 2 + bobOffset,
                                               GRID_CURSOR_HEIGHT, cursorColor);
+                const float pulse = static_cast<float>(std::sin(nowT * 5.0) * 1.5);
+                framebuffer.drawCornerBrackets(pillX - 4, pillY - 3, pillW + 8, pillH + 6, 10, 2, cursorColor, pulse);
             }
         }
 

@@ -1,3 +1,4 @@
+#include <cmath>
 #include <string>
 
 #include "UI/Panels/PartyPokemonPanel.h"
@@ -60,7 +61,13 @@ namespace UI
                 // not sit right against rounded corners.
                 constexpr int slotR = 12;
                 if (selected)
+                {
                     framebuffer.drawSoftShadow(cardX, cardY, colW, slotH, slotR);
+                    const double nowT = framebuffer.getTimeSeconds();
+                    const float pulse = static_cast<float>(std::sin(nowT * 5.0) * 1.5);
+                    Color bracketColor = (g_themeMode == ThemeMode::RetroDS) ? Color(232, 56, 72) : Colors::Accent;
+                    framebuffer.drawCornerBrackets(cardX - 3, cardY - 3, colW + 6, slotH + 6, 16, 3, bracketColor, pulse);
+                }
                 framebuffer.drawFilledRoundedRect(cardX, cardY, colW, slotH, slotR,
                                                   selected ? Colors::Selected : Colors::PanelAlt);
                 framebuffer.drawRoundedRect(cardX, cardY, colW, slotH, slotR,

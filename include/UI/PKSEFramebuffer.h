@@ -49,7 +49,7 @@ namespace UI
         void drawImage(int imageX, int imageY, int sourceWidth, int sourceHeight, const unsigned char *imageData,
                        int channels);
         void drawImageScaled(int imageX, int imageY, int sourceWidth, int sourceHeight, int destWidth, int destHeight,
-                             const unsigned char *imageData, int channels);
+                             const unsigned char *imageData, int channels, uint8_t alpha = 255);
         void flush();
 
         // Textures are cached under the ADDRESS of the pixel buffer they were built from, so when
@@ -150,6 +150,9 @@ namespace UI
         int drawTypePill(int x, int y, int width, int height, uint8_t typeId);
         void drawMoveCategoryIcon(int iconX, int iconY, int size, uint8_t category);
         void drawGaugeBar(int x, int y, int width, int height, float fraction, Color fillColor, Color trackColor);
+        // Corner brackets / targeting reticle (DS box crosshair / PKForge style).
+        void drawCornerBrackets(int boxX, int boxY, int boxWidth, int boxHeight, int bracketLen, int thickness,
+                                Color color, float pulseOffset = 0.0f);
         // Draw a sprite with a gentle idle animation (bob + breathe) and a soft ground
         // shadow, driven by the frame tick. (x,y,boxW,boxH) is the nominal placement box;
         // (srcW,srcH) the sprite's native size; `phase` offsets the timing per sprite.

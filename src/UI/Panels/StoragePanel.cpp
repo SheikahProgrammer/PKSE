@@ -223,7 +223,49 @@ namespace UI
 
                     framebuffer.drawFilledCircle(centerX, cy, discR, empty ? Colors::Panel : Colors::PanelAlt);
                     if (empty)
-                        framebuffer.drawCircle(centerX, cy, discR, Colors::Border, 1);
+                    {
+                        // Check if this slot was lifted into screen.moveMon
+                        bool wasLifted = false;
+                        if (!screen.moveMon.empty() && thisPane == screen.heldPane && boxIndex == screen.heldFromBox)
+                        {
+                            const int originCol = screen.heldFromSlot % cols;
+                            const int originRow = screen.heldFromSlot / cols;
+                            const int w = screen.selectDimensions.first;
+                            const int h = screen.selectDimensions.second;
+                            if (col >= originCol && col < originCol + w && row >= originRow && row < originRow + h)
+                            {
+                                const size_t monIndex = static_cast<size_t>((row - originRow) * w + (col - originCol));
+                                if (monIndex < screen.moveMon.size() && screen.moveMon[monIndex])
+                                {
+                                    wasLifted = true;
+                                    const Pokemon::Pokemon *liftedMon = screen.moveMon[monIndex].get();
+                                    framebuffer.drawCircle(centerX, cy, discR,
+                                                           Color(Colors::Border.red, Colors::Border.green, Colors::Border.blue, 120), 1);
+                                    const bool liftedShiny = liftedMon->isShiny(liftedMon->id32(), liftedMon->species());
+                                    const int markerSize = static_cast<int>(discR * 1.75);
+                                    if (liftedMon->isEgg())
+                                    {
+                                        framebuffer.drawEgg(centerX, cy, markerSize);
+                                    }
+                                    else
+                                    {
+                                        Sprite *sprite = SpriteManager::getIconSprite(liftedMon->speciesID(), liftedMon->form(), liftedShiny);
+                                        if (sprite && sprite->data)
+                                        {
+                                            framebuffer.drawImageScaled(centerX - markerSize / 2, cy - markerSize / 2,
+                                                                        sprite->width, sprite->height, markerSize, markerSize,
+                                                                        sprite->data, sprite->channels, 90);
+                                        }
+                                    }
+                                    // Origin ring marker (warm primary amber)
+                                    framebuffer.drawCircle(centerX, cy, discR + 2,
+                                                           Color(Colors::Primary.red, Colors::Primary.green, Colors::Primary.blue, 180), 2);
+                                }
+                            }
+                        }
+                        if (!wasLifted)
+                            framebuffer.drawCircle(centerX, cy, discR, Colors::Border, 1);
+                    }
 
                     drawSlotDisc(screen, framebuffer, pokemon, savePane, boxIndex, slotIndex, centerX, cy, discR);
 
@@ -244,6 +286,9 @@ namespace UI
                     framebuffer.drawRoundedRect(gridX + selC0 * colPitch + 2, gridTop + selR0 * rowPitch + 2,
                                        (selC1 - selC0 + 1) * colPitch - 4, (selR1 - selR0 + 1) * rowPitch - 4,
                                        14, Colors::CursorMulti, 3);
+                    framebuffer.drawCornerBrackets(gridX + selC0 * colPitch + 2, gridTop + selR0 * rowPitch + 2,
+                                                  (selC1 - selC0 + 1) * colPitch - 4, (selR1 - selR0 + 1) * rowPitch - 4,
+                                                  16, 3, Colors::CursorMulti, 0.0f);
                 }
             }
 
@@ -308,6 +353,11 @@ namespace UI
                 const int cellCenterX = g.centerX(cursorSlot), cellCenterY = g.centerY(cursorSlot);
                 framebuffer.drawPointerCursor(cellCenterX, cellCenterY - g.discR - 3 + bobOffset, GRID_CURSOR_HEIGHT,
                                               cursorColor);
+                // Corner brackets (DS crosshair) framing the focused slot
+                const float pulse = static_cast<float>(std::sin(framebuffer.getTimeSeconds() * 5.0) * 1.5);
+                Color bracketColor = (g_themeMode == ThemeMode::RetroDS) ? Color(232, 56, 72) : cursorColor;
+                framebuffer.drawCornerBrackets(cellCenterX - g.discR - 4, cellCenterY - g.discR - 4,
+                                              (g.discR + 4) * 2, (g.discR + 4) * 2, 11, 2, bracketColor, pulse);
             }
         }
 

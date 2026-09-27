@@ -959,15 +959,16 @@ namespace UI
     }
 
     void PKSEFramebuffer::drawImageScaled(int imageX, int imageY, int imageWidth, int imageHeight, int destWidth,
-                                          int destHeight, const unsigned char *data, int channels)
+                                          int destHeight, const unsigned char *data, int channels, uint8_t alpha)
     {
         if (!ensureFrame())
             return;
         int image = nvgImageFor(data, imageWidth, imageHeight, channels);
         if (image < 0)
             return;
+        const float a = static_cast<float>(alpha) / 255.0f;
         NVGpaint imagePaint =
-            nvgImagePattern(vg, (float)imageX, (float)imageY, (float)destWidth, (float)destHeight, 0.0f, image, 1.0f);
+            nvgImagePattern(vg, (float)imageX, (float)imageY, (float)destWidth, (float)destHeight, 0.0f, image, a);
         nvgBeginPath(vg);
         nvgRect(vg, (float)imageX, (float)imageY, (float)destWidth, (float)destHeight);
         nvgFillPaint(vg, imagePaint);
@@ -1196,6 +1197,47 @@ namespace UI
             drawFilledRoundedRect(x, y, width, height, height / 2, fillColor);
             nvgRestore(vg);
         }
+    }
+
+    void PKSEFramebuffer::drawCornerBrackets(int boxX, int boxY, int boxWidth, int boxHeight, int bracketLen,
+                                             int thickness, Color color, float pulseOffset)
+    {
+        if (boxWidth <= 0 || boxHeight <= 0 || bracketLen <= 0 || thickness <= 0 || !ensureFrame())
+            return;
+
+        const float x0 = static_cast<float>(boxX) - pulseOffset;
+        const float y0 = static_cast<float>(boxY) - pulseOffset;
+        const float x1 = static_cast<float>(boxX + boxWidth) + pulseOffset;
+        const float y1 = static_cast<float>(boxY + boxHeight) + pulseOffset;
+        const float len = static_cast<float>(bracketLen);
+
+        nvgBeginPath(vg);
+
+        // Top-Left corner: (x0 + len, y0) -> (x0, y0) -> (x0, y0 + len)
+        nvgMoveTo(vg, x0 + len, y0);
+        nvgLineTo(vg, x0, y0);
+        nvgLineTo(vg, x0, y0 + len);
+
+        // Top-Right corner: (x1 - len, y0) -> (x1, y0) -> (x1, y0 + len)
+        nvgMoveTo(vg, x1 - len, y0);
+        nvgLineTo(vg, x1, y0);
+        nvgLineTo(vg, x1, y0 + len);
+
+        // Bottom-Left corner: (x0 + len, y1) -> (x0, y1) -> (x0, y1 - len)
+        nvgMoveTo(vg, x0 + len, y1);
+        nvgLineTo(vg, x0, y1);
+        nvgLineTo(vg, x0, y1 - len);
+
+        // Bottom-Right corner: (x1 - len, y1) -> (x1, y1) -> (x1, y1 - len)
+        nvgMoveTo(vg, x1 - len, y1);
+        nvgLineTo(vg, x1, y1);
+        nvgLineTo(vg, x1, y1 - len);
+
+        nvgStrokeWidth(vg, static_cast<float>(thickness));
+        nvgStrokeColor(vg, toNVG(color));
+        nvgLineCap(vg, NVG_SQUARE);
+        nvgLineJoin(vg, NVG_MITER);
+        nvgStroke(vg);
     }
 
     void PKSEFramebuffer::startFade() { fadeStart = totalSeconds; }
