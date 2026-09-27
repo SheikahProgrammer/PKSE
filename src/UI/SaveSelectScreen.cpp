@@ -946,10 +946,18 @@ namespace UI
                         std::string displayLabel = formatCleanLabel(gName);
 
                         bool duplicate = false;
-                        for (const auto &existing : user.titles)
+                        for (auto &existing : user.titles)
                         {
-                            if (existing.filePath == mainPath || existing.label == displayLabel)
+                            if (existing.filePath == mainPath)
                             {
+                                duplicate = true;
+                                break;
+                            }
+                            if (existing.label == displayLabel)
+                            {
+                                // Canonical Citra save always supersedes any flat or loose save
+                                existing.filePath = std::string(mainPath);
+                                existing.iconPath = resolveGameIcon("3DS", displayLabel, mainPath);
                                 duplicate = true;
                                 break;
                             }
@@ -1142,28 +1150,27 @@ namespace UI
         tico.name = "Tico Emulator";
         memset(&tico.accountUid, 0xFF, sizeof(AccountUid)); // sentinel UID (0xFF...FF)
 
-        // 1. Scan standard Tico save directories
+        // 1. Scan Azahar / Citra 3DS simulated SD card saves FIRST.
+        // Citra/Azahar saves to sdmc:/tico/system/3ds/sdmc/Nintendo 3DS/.../title/00040000/<tid>/data/00000001/main.
+        // Prioritizing this ensures the authentic live 3DS save is always targeted over loose or stale files.
+        scanCitraDir(tico, "sdmc:/tico/system/3ds/sdmc/Nintendo 3DS");
+
+        // 2. Scan standard Tico save directories (GBA, GBC, NDS, 3DS)
         scanTicoDir(tico, "sdmc:/tico/saves/gba", "GBA");
         scanTicoDir(tico, "sdmc:/tico/saves/gbc", "GBC");
         scanTicoDir(tico, "sdmc:/tico/saves/nds", "NDS");
         scanTicoDir(tico, "sdmc:/tico/saves/3ds", "3DS");
 
-        // 2. Scan Tico ROM directories
+        // 3. Scan Tico ROM directories
         scanTicoDir(tico, "sdmc:/tico/roms/gba", "GBA");
         scanTicoDir(tico, "sdmc:/tico/roms/gbc", "GBC");
         scanTicoDir(tico, "sdmc:/tico/roms/nds", "NDS");
         scanTicoDir(tico, "sdmc:/tico/roms/3ds", "3DS");
 
-        // 3. Scan RetroArch NDS ROMs & Standalone melonDS directories
+        // 4. Scan RetroArch NDS ROMs & Standalone melonDS directories
         scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS", "NDS");
         scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS/melonDS", "NDS");
         scanTicoDir(tico, "sdmc:/retroarch/cores/savefiles/melonDS", "NDS");
-
-        // 4. Scan Azahar / Citra 3DS simulated SD card saves
-        scanCitraDir(tico, "sdmc:/tico/system/3ds/sdmc/Nintendo 3DS");
-
-        // 5. Scan PKSE Tico working/saved folders
-        scanTicoDir(tico, "sdmc:/PKSE/Tico", "Emu");
 
         if (!tico.titles.empty())
         {
