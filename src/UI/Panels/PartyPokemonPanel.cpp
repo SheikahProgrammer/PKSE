@@ -9,6 +9,7 @@
 #include "Pokemon/Pokemon.h"
 #include "Pokemon/PokemonTypes.h"
 #include "Names/FormNames.h" // getDisplayName -- variant prefix ("Alolan Raichu", "Combat Breed Tauros")
+#include "Names/ItemNames.h"
 
 using namespace Trainer;
 
@@ -177,15 +178,45 @@ namespace UI
                                                                    pokemon->getGameGroup());
                 const int typeX = cardX + 286;
                 drawTypeIcon(framebuffer, SpriteManager::getTypeSprite(types.type1), typeX, cardY + 42, 16);
+                int badgeY = cardY + 63;
                 if (Pokemon::hasSecondType(types))
                 {
-                    drawTypeIcon(framebuffer, SpriteManager::getTypeSprite(types.type2), typeX, cardY + 63, 16);
+                    drawTypeIcon(framebuffer, SpriteManager::getTypeSprite(types.type2), typeX, badgeY, 16);
+                    badgeY += 21;
+                }
+
+                // Ball icon and Held Item icon side-by-side
+                if (pokemon->hasBall() && pokemon->ball() > 0)
+                {
+                    Sprite *ballSp = SpriteManager::getBallSprite(pokemon->ball());
+                    if (ballSp && ballSp->data)
+                    {
+                        framebuffer.drawImageScaled(typeX, badgeY, ballSp->width, ballSp->height,
+                                                    16, 16, ballSp->data, ballSp->channels);
+                    }
+                }
+                if (pokemon->hasHeldItem() && pokemon->heldItem() > 0)
+                {
+                    uint16_t spriteItemId = Enums::isGen3Group(pokemon->getGameGroup())
+                                                ? Names::itemG3ToModern(pokemon->heldItem())
+                                                : pokemon->heldItem();
+                    Sprite *itemSp = SpriteManager::getItemSprite(spriteItemId);
+                    if (itemSp && itemSp->data)
+                    {
+                        int itemX = (pokemon->hasBall() && pokemon->ball() > 0) ? (typeX + 20) : typeX;
+                        framebuffer.drawImageScaled(itemX, badgeY, itemSp->width, itemSp->height,
+                                                    16, 16, itemSp->data, itemSp->channels);
+                    }
                 }
 
                 Sprite *sprite = SpriteManager::getSprite(pokemon->speciesID(), pokemon->form(), isShiny);
                 if (sprite && sprite->data)
                 {
-                    const int spriteBoxSize = 96;
+                    // Pixel sprites (68×56 native) look small at 96px compared to HD 512px renders;
+                    // bump the box when pixel art is active so retro icons have proper visual weight.
+                    const bool pixelActive = (g_spriteStyle == SpriteStyle::PixelArt) ||
+                                             (g_spriteStyle == SpriteStyle::Auto && g_themeMode == ThemeMode::RetroDS);
+                    const int spriteBoxSize = pixelActive ? 112 : 96;
                     int spriteX = cardX + colW - pad - spriteBoxSize;
                     int spriteY = cardY + 30;
                     framebuffer.drawSpriteIdle(spriteX, spriteY, spriteBoxSize, spriteBoxSize, sprite->width,

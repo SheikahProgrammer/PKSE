@@ -10,6 +10,7 @@
 #include "Events/EventDatabase.h"
 #include "Names/MoveNames.h"
 #include "Names/ItemNames.h"
+#include "Enums/Ball.h"
 #include "Trainer/Trainer.h"
 
 namespace UI {
@@ -210,15 +211,47 @@ namespace Panels {
                     ? Names::getItemNameG3(sel->heldItem)
                     : Names::getItemName(sel->heldItem);
                 std::string itemStr = (sel->heldItem > 0 && itName) ? itName : "None";
-                fb.drawText(iX, gy + 24, "Held Item: " + itemStr, Colors::TextDim, TextStyle::Body);
+                fb.drawText(iX, gy + 24, "Held Item: ", Colors::TextDim, TextStyle::Body);
+                int itemLblW = 0, itemLblH = 0;
+                fb.measureText("Held Item: ", itemLblW, itemLblH, TextStyle::Body);
+                int itemContentX = iX + itemLblW;
+                if (sel->heldItem > 0)
+                {
+                    uint16_t spriteItemId = (sel->generation == 3) ? Names::itemG3ToModern(sel->heldItem) : sel->heldItem;
+                    Sprite* itemSp = SpriteManager::getItemSprite(spriteItemId);
+                    if (itemSp && itemSp->data)
+                    {
+                        constexpr int itemIconSize = 18;
+                        fb.drawImageScaled(itemContentX, gy + 24 + 1, itemSp->width, itemSp->height,
+                                           itemIconSize, itemIconSize, itemSp->data, itemSp->channels);
+                        itemContentX += itemIconSize + 6;
+                    }
+                }
+                fb.drawText(itemContentX, gy + 24, itemStr, (sel->heldItem > 0) ? Colors::Text : Colors::TextDim, TextStyle::Body);
 
                 const char* natName = Trainer::getNatureName(sel->nature);
                 std::string natStr = (sel->nature < 25 && natName) ? natName : "Random Nature";
                 fb.drawText(iX, gy + 48, "Nature: " + natStr, Colors::TextDim, TextStyle::Body);
 
                 // Ball
-                const char* ballName = (sel->ball == 16) ? "Cherish Ball" : (sel->ball == 4) ? "Poké Ball" : "Event Ball";
-                fb.drawText(iX, gy + 72, std::string("Ball: ") + ballName, Colors::TextDim, TextStyle::Body);
+                const char* bName = Enums::getBallName(sel->ball);
+                std::string ballName = (sel->ball > 0 && bName) ? bName : (sel->ball == 16 ? "Cherish Ball" : "Poké Ball");
+                fb.drawText(iX, gy + 72, "Ball: ", Colors::TextDim, TextStyle::Body);
+                int ballLblW = 0, ballLblH = 0;
+                fb.measureText("Ball: ", ballLblW, ballLblH, TextStyle::Body);
+                int ballContentX = iX + ballLblW;
+                if (sel->ball > 0)
+                {
+                    Sprite* ballSp = SpriteManager::getBallSprite(sel->ball);
+                    if (ballSp && ballSp->data)
+                    {
+                        constexpr int ballIconSize = 18;
+                        fb.drawImageScaled(ballContentX, gy + 72 + 1, ballSp->width, ballSp->height,
+                                           ballIconSize, ballIconSize, ballSp->data, ballSp->channels);
+                        ballContentX += ballIconSize + 6;
+                    }
+                }
+                fb.drawText(ballContentX, gy + 72, ballName, Colors::Text, TextStyle::Body);
 
                 // ---------------------------------------------------------------------
                 // Lower Details: OT, Trainer Info & Moves

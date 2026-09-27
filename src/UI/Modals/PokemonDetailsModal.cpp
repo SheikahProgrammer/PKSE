@@ -479,7 +479,31 @@ namespace UI
                 editRow("Egg Date", buffer, 30);
             }
             if (p->hasBall())
-                editRow("Ball", Enums::getBallName(p->ball()), 19);
+            {
+                // Ball row with inline ball sprite icon before the name.
+                const std::string ballName = Enums::getBallName(p->ball());
+                constexpr int ballIconSize = 24; // rendered size
+                constexpr int iconGap = 6;
+
+                // Use editRow for layout/nav/touch, then overdraw the ball icon on the value side.
+                editRow("Ball", ballName, 19);
+
+                // Draw the ball icon at the right side, just before the text value.
+                Sprite *ballSprite = SpriteManager::getBallSprite(p->ball());
+                if (ballSprite && ballSprite->data)
+                {
+                    const int rectY = (infoRowY - editRowHeight) - scroll; // editRow already advanced infoRowY
+                    if (rowVisible(rectY))
+                    {
+                        int valW, valH;
+                        framebuffer.measureText(ballName, valW, valH, TextStyle::Body);
+                        int iconX = leftColumnX + Lw - 18 - valW - iconGap - ballIconSize;
+                        int iconY = rectY + (editRowHeight - ballIconSize) / 2;
+                        framebuffer.drawImageScaled(iconX, iconY, ballSprite->width, ballSprite->height,
+                                                    ballIconSize, ballIconSize, ballSprite->data, ballSprite->channels);
+                    }
+                }
+            }
             // The same placeholder: an egg's language byte says Japanese on every cartridge, and the
             // hatch overwrites it with the game's own (the hatched eggs in a real English FireRed save
             // read English). Reporting "Japanese" here was the visible half of that.
@@ -1162,7 +1186,24 @@ namespace UI
                                                                 ? Names::getItemNameG3(heldItemId)
                                                                 : getItemName(heldItemId))
                                               : std::string("None");
-                framebuffer.drawText(slotX + 16, infoRowY + 4, p->hasHeldItem() ? iname : std::string("--"),
+
+                uint16_t spriteItemId = heldItemId;
+                if (heldItemId > 0 && Enums::isGen3Group(p->getGameGroup()))
+                    spriteItemId = Names::itemG3ToModern(heldItemId);
+
+                Sprite *itemSprite = (spriteItemId > 0) ? SpriteManager::getItemSprite(spriteItemId) : nullptr;
+                int textX = slotX + 16;
+                if (itemSprite && itemSprite->data)
+                {
+                    constexpr int iconSize = 24;
+                    int iconX = slotX + 12;
+                    int iconY = (infoRowY - 6) + (40 - iconSize) / 2;
+                    framebuffer.drawImageScaled(iconX, iconY, itemSprite->width, itemSprite->height,
+                                                iconSize, iconSize, itemSprite->data, itemSprite->channels);
+                    textX = iconX + iconSize + 10;
+                }
+
+                framebuffer.drawText(textX, infoRowY + 4, p->hasHeldItem() ? iname : std::string("--"),
                             heldItemId ? (scrollOffset ? Colors::White : Colors::Text) : Colors::TextDim, TextStyle::Body);
                 // Only offer the row as a touch target where the format can actually hold an item;
                 // Gen 1 has no held-item field, so tapping it would open an editor over nothing.

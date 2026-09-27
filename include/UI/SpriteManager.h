@@ -94,6 +94,12 @@ namespace UI
         // Bytes of decoded pixel data currently held. Exposed for diagnostics/logging.
         static size_t cachedBytes();
 
+        // Get ball sprite by ball ID (1-37). Returns nullptr if not found.
+        static Sprite *getBallSprite(uint8_t ballId);
+
+        // Get held item sprite by item ID. Returns nullptr if not found.
+        static Sprite *getItemSprite(uint16_t itemId);
+
     private:
         static Sprite *loadSprite(const std::string &path);
         static Sprite *loadPokemonPixelSprite(uint16_t speciesId, uint8_t formId, bool isShiny);
@@ -119,6 +125,8 @@ namespace UI
         static void releaseSprite(Sprite *sprite);
 
         static std::map<uint8_t, Sprite *> typeSpriteCache;
+        static std::map<uint8_t, Sprite *> ballSpriteCache;
+        static std::map<uint16_t, Sprite *> itemSpriteCache;
 
         // Origin marking cache: key = mark | (packed RGB << 8), so one mark can be held in more
         // than one tint without either evicting the other on a theme switch.

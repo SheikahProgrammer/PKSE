@@ -451,11 +451,35 @@ namespace UI
             };
             infoRow("Nature", getNatureName(p->nature()));
             infoRow("Ability", getAbilityName(p->ability()));
-            infoRow("Held Item", p->heldItem()
-                                     ? std::string(Enums::isGen3Group(p->getGameGroup())
-                                                       ? Names::getItemNameG3(p->heldItem())
-                                                       : getItemName(p->heldItem()))
-                                     : std::string("None"));
+            {
+                framebuffer.drawText(boxSummaryPanelX + 18, infoRowY, "Held Item", Colors::TextDim, TextStyle::Caption);
+                const std::string itemVal = p->heldItem()
+                                                ? std::string(Enums::isGen3Group(p->getGameGroup())
+                                                                  ? Names::getItemNameG3(p->heldItem())
+                                                                  : getItemName(p->heldItem()))
+                                                : std::string("None");
+                int itemRightEdge = boxSummaryPanelX + boxSummaryPanelWidth - 18;
+                int valW = 0, valH = 0;
+                framebuffer.measureText(itemVal, valW, valH, TextStyle::Caption);
+                framebuffer.drawText(itemRightEdge - valW, infoRowY, itemVal,
+                                     p->heldItem() ? Colors::Text : Colors::TextDim, TextStyle::Caption);
+
+                if (p->heldItem())
+                {
+                    uint16_t spriteItemId = Enums::isGen3Group(p->getGameGroup())
+                                                ? Names::itemG3ToModern(p->heldItem())
+                                                : p->heldItem();
+                    Sprite *itemSprite = SpriteManager::getItemSprite(spriteItemId);
+                    if (itemSprite && itemSprite->data)
+                    {
+                        constexpr int itemIconSize = 16;
+                        framebuffer.drawImageScaled(itemRightEdge - valW - itemIconSize - 4, infoRowY - 2,
+                                                    itemSprite->width, itemSprite->height,
+                                                    itemIconSize, itemIconSize, itemSprite->data, itemSprite->channels);
+                    }
+                }
+                infoRowY += 20;
+            }
             // ORIGIN STAMP. A box always belongs to the open save, so that save is the title
             // context a versionless PK1/PK2 borrows -- see UI::originStampLabel.
             {

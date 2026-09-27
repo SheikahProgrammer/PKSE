@@ -58,6 +58,8 @@ namespace UI
     size_t SpriteManager::spriteBytes = 0;
     SpriteManager::EvictFn SpriteManager::evictCallback = nullptr;
     std::map<uint8_t, Sprite *> SpriteManager::typeSpriteCache;
+    std::map<uint8_t, Sprite *> SpriteManager::ballSpriteCache;
+    std::map<uint16_t, Sprite *> SpriteManager::itemSpriteCache;
 std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
     bool SpriteManager::initialized = false;
 
@@ -132,6 +134,14 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         for (auto &pair : typeSpriteCache)
             delete pair.second;
         typeSpriteCache.clear();
+
+        for (auto &pair : ballSpriteCache)
+            delete pair.second;
+        ballSpriteCache.clear();
+
+        for (auto &pair : itemSpriteCache)
+            delete pair.second;
+        itemSpriteCache.clear();
 
         initialized = false;
         logInfoToFile("SpriteManager cleanup complete");
@@ -453,5 +463,41 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
     {
         Sprite *sprite = getTypeSprite(typeId);
         return sprite != nullptr;
+    }
+
+    Sprite *SpriteManager::getBallSprite(uint8_t ballId)
+    {
+        if (!initialized)
+            init();
+
+        if (ballId == 0)
+            return nullptr;
+
+        auto iterator = ballSpriteCache.find(ballId);
+        if (iterator != ballSpriteCache.end())
+            return iterator->second;
+
+        std::string path = "sprites/balls/" + std::to_string(ballId) + ".png";
+        Sprite *sprite = loadSprite(path);
+        ballSpriteCache[ballId] = sprite;
+        return sprite;
+    }
+
+    Sprite *SpriteManager::getItemSprite(uint16_t itemId)
+    {
+        if (!initialized)
+            init();
+
+        if (itemId == 0)
+            return nullptr;
+
+        auto iterator = itemSpriteCache.find(itemId);
+        if (iterator != itemSpriteCache.end())
+            return iterator->second;
+
+        std::string path = "sprites/items/" + std::to_string(itemId) + ".png";
+        Sprite *sprite = loadSprite(path);
+        itemSpriteCache[itemId] = sprite;
+        return sprite;
     }
 }
