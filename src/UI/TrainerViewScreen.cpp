@@ -22,6 +22,7 @@
 #include "UI/TrainerViewScreen.h"
 #include "UI/TouchInput.h"
 #include "UI/Common.h"
+#include "UI/SpriteManager.h"
 #include "UI/ScreenChrome.h"
 #include "UI/Panels/PartyPokemonPanel.h"
 #include "UI/Panels/BoxPokemonPanel.h"
@@ -96,13 +97,15 @@ namespace UI
     // drawSettingsView's four arrays together.
     constexpr int SETTINGS_ROW_AUTO_BACKUP = 0;
     constexpr int SETTINGS_ROW_THEME = 1;
-    constexpr int SETTINGS_ROW_ALLOW_ILLEGAL = 2;
-    constexpr int SETTINGS_ROW_AUTO_LEGALIZE = 3;
-    constexpr int SETTINGS_ROW_MOVE_WARNING = 4;
-    constexpr int SETTINGS_ROW_INJECT_TO_GAME = 5;
-    constexpr int SETTINGS_ROW_DEBUG_LOGGING = 6;
-    constexpr int SETTINGS_ROW_LANGUAGE = 7;
-    constexpr int SETTINGS_ROW_COUNT = 8; // rows DEFINED, which is what the row tables are sized by
+    constexpr int SETTINGS_ROW_SPRITE_STYLE = 2;
+    constexpr int SETTINGS_ROW_SD_OVERRIDE = 3;
+    constexpr int SETTINGS_ROW_ALLOW_ILLEGAL = 4;
+    constexpr int SETTINGS_ROW_AUTO_LEGALIZE = 5;
+    constexpr int SETTINGS_ROW_MOVE_WARNING = 6;
+    constexpr int SETTINGS_ROW_INJECT_TO_GAME = 7;
+    constexpr int SETTINGS_ROW_DEBUG_LOGGING = 8;
+    constexpr int SETTINGS_ROW_LANGUAGE = 9;
+    constexpr int SETTINGS_ROW_COUNT = 10; // rows DEFINED, which is what the row tables are sized by
 
     // Rows actually SHOWN. The Language row is defined but not selectable yet (see
     // Names::DISPLAY_LANGUAGE_SELECTABLE), and a row that does nothing does not belong on screen at
@@ -625,15 +628,28 @@ namespace UI
         const char *labels[rowCount] = {
             "Auto-Backup on Load",
             "Theme",
+            "Sprite Style",
+            "SD Sprite Override",
             "Allow Illegal Values",
             "Auto-Legalize Unsupported Transfers",
             "Bank Storage Move Warning",
             "Allow Inject Backups to Game Save",
             "Enable Debug Logging",
             "Language"};
+
+        std::string spriteStyleStr = "Auto (Theme)";
+        if (g_spriteStyle == SpriteStyle::PixelArt)
+            spriteStyleStr = "Retro DS (Pixel)";
+        else if (g_spriteStyle == SpriteStyle::ModernHD)
+            spriteStyleStr = "Modern (3D HOME)";
+        else if (g_spriteStyle == SpriteStyle::Hybrid)
+            spriteStyleStr = "Hybrid (Box/Detail)";
+
         std::string values[rowCount] = {
             g_autoBackupEnabled ? "On" : "Off",
             (g_themeMode == ThemeMode::Dark) ? "Dark" : (g_themeMode == ThemeMode::Light ? "Light" : "Retro DS (Pixel)"),
+            spriteStyleStr,
+            g_sdSpriteOverride ? "On" : "Off",
             g_allowIllegalEdits ? "On" : "Off",
             g_autoLegalizeTransfers ? "On" : "Off",
             g_moveWarn ? "On" : "Off",
@@ -649,6 +665,8 @@ namespace UI
         const bool rowIsOn[rowCount] = {
             g_autoBackupEnabled,
             false, // Theme names its mode (Dark/Light) rather than toggling, so it never lights up
+            false, // Sprite Style names its mode
+            g_sdSpriteOverride,
             g_allowIllegalEdits,
             g_autoLegalizeTransfers,
             g_moveWarn,
@@ -658,18 +676,10 @@ namespace UI
         };
         // Amber "On" for the benign toggles; RED for the two that can damage real data -- the
         // illegal-values override and game-save injection. Colour carries the risk, not just text.
-        const bool rowIsDestructive[rowCount] = {false, false, true, false, false, true, false, false};
+        const bool rowIsDestructive[rowCount] = {false, false, false, false, true, false, false, true, false, false};
         // The panel is a fixed height, so the rows have to fit inside it -- there is no scrolling
-        // here. The assert is the point, and it has earned its keep twice: the Language row as a
-        // seventh and the auto-legalize row as an EIGHTH each broke the build rather than quietly
-        // drawing past the panel edge. Eight rows need rowH + rowGap <= 58, so the pitch came down
-        // again, 56+10 -> 50+8 (558 of 560 used). rowH is also the touch target, and 50 is still
-        // above the ~44px minimum.
-        //
-        // Deliberately asserted on the DEFINED count, not the seven currently drawn: it has to keep
-        // holding on the day the Language row comes back, and an assert that only covers what is on
-        // screen today would pass right up until then.
-        constexpr int rowW = 720, rowH = 50, rowGap = 8, rowsTop = 22, footerH = 26;
+        // here. The assert is the point: all rows fit neatly within CONTENT_PANEL_HEIGHT.
+        constexpr int rowW = 720, rowH = 43, rowGap = 5, rowsTop = 14, footerH = 18;
         static_assert(headerHeight + rowsTop + rowCount * (rowH + rowGap) + footerH <= CONTENT_PANEL_HEIGHT,
                       "Settings rows no longer fit the content panel -- shrink the rows or add scrolling");
         const int rowX = settingsViewX + (settingsViewWidth - rowW) / 2;
@@ -677,16 +687,16 @@ namespace UI
         for (int index = 0; index < SETTINGS_ROW_VISIBLE_COUNT; ++index)
         {
             const bool selectedIndex = (screen.settingsSelectedRow == index);
-            framebuffer.drawSoftShadow(rowX, rectY, rowW, rowH, 14);
-            framebuffer.drawFilledRoundedRect(rowX, rectY, rowW, rowH, 14,
+            framebuffer.drawSoftShadow(rowX, rectY, rowW, rowH, 12);
+            framebuffer.drawFilledRoundedRect(rowX, rectY, rowW, rowH, 12,
                                               selectedIndex ? Colors::Selected : Colors::PanelAlt);
             if (selectedIndex)
-                framebuffer.drawRoundedRect(rowX, rectY, rowW, rowH, 14, Colors::Accent, 2);
+                framebuffer.drawRoundedRect(rowX, rectY, rowW, rowH, 12, Colors::Accent, 2);
             framebuffer.drawText(rowX + 24, rectY + (rowH - framebuffer.lineHeight(TextStyle::Body)) / 2, labels[index],
                                  Colors::Text, TextStyle::Body);
             int valueWidth, vh;
             framebuffer.measureText(values[index], valueWidth, vh, TextStyle::Body);
-            const int pillW = valueWidth + 48, pillH = 40;
+            const int pillW = valueWidth + 36, pillH = 32;
             const int panelX = rowX + rowW - pillW - 20, py = rectY + (rowH - pillH) / 2;
             Color pillFill = Colors::Background, pillText = Colors::Text;
             if (rowIsOn[index])
@@ -700,7 +710,7 @@ namespace UI
             screen.touchButtons.push_back({index, rowX, rectY, rowW, rowH});
             rectY += rowH + rowGap;
         }
-        framebuffer.drawText(rowX, rectY + 8, "A: toggle     B: back", Colors::TextDim, TextStyle::Caption);
+        framebuffer.drawText(rowX, rectY + 6, "A: toggle     B: back", Colors::TextDim, TextStyle::Caption);
     }
 
     // Trainer view (HOME-style ID card), reached from the HOME menu's Trainer icon. The first two
@@ -7139,7 +7149,26 @@ namespace UI
                     if (settingsSelectedRow == SETTINGS_ROW_AUTO_BACKUP)
                         g_autoBackupEnabled = !g_autoBackupEnabled;
                     else if (settingsSelectedRow == SETTINGS_ROW_THEME)
+                    {
                         applyTheme(g_themeMode == ThemeMode::Dark ? ThemeMode::Light : (g_themeMode == ThemeMode::Light ? ThemeMode::RetroDS : ThemeMode::Dark));
+                        if (g_spriteStyle == SpriteStyle::Auto)
+                            SpriteManager::clearCache();
+                    }
+                    else if (settingsSelectedRow == SETTINGS_ROW_SPRITE_STYLE)
+                    {
+                        if (g_spriteStyle == SpriteStyle::Auto)
+                            SpriteManager::setSpriteStyle(SpriteStyle::Hybrid);
+                        else if (g_spriteStyle == SpriteStyle::Hybrid)
+                            SpriteManager::setSpriteStyle(SpriteStyle::PixelArt);
+                        else if (g_spriteStyle == SpriteStyle::PixelArt)
+                            SpriteManager::setSpriteStyle(SpriteStyle::ModernHD);
+                        else
+                            SpriteManager::setSpriteStyle(SpriteStyle::Auto);
+                    }
+                    else if (settingsSelectedRow == SETTINGS_ROW_SD_OVERRIDE)
+                    {
+                        SpriteManager::setSdOverride(!g_sdSpriteOverride);
+                    }
                     else if (settingsSelectedRow == SETTINGS_ROW_ALLOW_ILLEGAL)
                         g_allowIllegalEdits = !g_allowIllegalEdits;
                     else if (settingsSelectedRow == SETTINGS_ROW_AUTO_LEGALIZE)

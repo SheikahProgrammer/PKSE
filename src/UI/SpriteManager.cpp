@@ -6,6 +6,7 @@
 #include <string>
 
 #include "UI/SpriteManager.h"
+#include "Globals.h"
 #include "Names/TypeNames.h"
 #include "Pokemon/FormSpriteMapping.h"
 #include "Utils/Logger.h"
@@ -28,6 +29,26 @@ namespace UI
                 return 0;
             return static_cast<size_t>(sourceBytes->width) * static_cast<size_t>(sourceBytes->height) *
                    static_cast<size_t>(sourceBytes->channels);
+        }
+
+        bool wantPixelForIcon()
+        {
+            if (g_spriteStyle == SpriteStyle::PixelArt || g_spriteStyle == SpriteStyle::Hybrid)
+                return true;
+            if (g_spriteStyle == SpriteStyle::ModernHD)
+                return false;
+            // Auto: follows theme
+            return (g_themeMode == ThemeMode::RetroDS);
+        }
+
+        bool wantPixelForSprite()
+        {
+            if (g_spriteStyle == SpriteStyle::PixelArt)
+                return true;
+            if (g_spriteStyle == SpriteStyle::ModernHD || g_spriteStyle == SpriteStyle::Hybrid)
+                return false;
+            // Auto: follows theme
+            return (g_themeMode == ThemeMode::RetroDS);
         }
     }
 
@@ -116,17 +137,62 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         logInfoToFile("SpriteManager cleanup complete");
     }
 
+    void SpriteManager::clearCache()
+    {
+        for (auto &pair : spriteCache)
+        {
+            if (pair.second.sprite)
+                releaseSprite(pair.second.sprite);
+        }
+        spriteCache.clear();
+        spriteLru.clear();
+        spriteBytes = 0;
+    }
+
+    SpriteStyle SpriteManager::getSpriteStyle() { return g_spriteStyle; }
+
+    void SpriteManager::setSpriteStyle(SpriteStyle style)
+    {
+        if (g_spriteStyle != style)
+        {
+            g_spriteStyle = style;
+            clearCache();
+        }
+    }
+
+    bool SpriteManager::getSdOverride() { return g_sdSpriteOverride; }
+
+    void SpriteManager::setSdOverride(bool enabled)
+    {
+        if (g_sdSpriteOverride != enabled)
+        {
+            g_sdSpriteOverride = enabled;
+            clearCache();
+        }
+    }
+
     Sprite *SpriteManager::loadSprite(const std::string &path)
     {
-        // Try to load from ROMFS
-        std::string fullPath = "romfs:/" + path;
+        unsigned char *data = nullptr;
+        int width = 0, height = 0, channels = 0;
 
-        int width, height, channels;
-        unsigned char *data = stbi_load(fullPath.c_str(), &width, &height, &channels, 0);
+        // Try SD card first if SD override is enabled
+        if (g_sdSpriteOverride)
+        {
+            std::string sdPath = BASE_SAVE_DIRECTORY + "/" + path;
+            data = stbi_load(sdPath.c_str(), &width, &height, &channels, 4);
+        }
+
+        // Fall back to ROMFS
+        if (!data)
+        {
+            std::string fullPath = "romfs:/" + path;
+            data = stbi_load(fullPath.c_str(), &width, &height, &channels, 4);
+        }
 
         if (!data)
         {
-            // Not an error — callers probe several paths (HD -> 96px -> base form).
+            // Not an error — callers probe several paths (HD -> pixel -> base form).
             return nullptr;
         }
 
@@ -134,9 +200,70 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         sprite->data = data;
         sprite->width = width;
         sprite->height = height;
-        sprite->channels = channels;
+        sprite->channels = 4; // Always 4 channels RGBA for guaranteed NanoVG compatibility
 
         return sprite;
+    }
+
+    Sprite *SpriteManager::loadPokemonPixelSprite(uint16_t speciesId, uint8_t formId, bool isShiny)
+    {
+        std::string suffix = isShiny ? "s" : "";
+        std::string stem = (formId > 0) ? (std::to_string(speciesId) + "-" + std::to_string(formId))
+                                        : std::to_string(speciesId);
+
+        // 1. Exact form with requested shiny state
+        Sprite *sp = loadSprite("sprites/pokemon_pixel/" + stem + suffix + ".png");
+
+        // 2. Shiny fallback: if shiny was requested but missing, try non-shiny for exact form
+        if (!sp && isShiny)
+        {
+            sp = loadSprite("sprites/pokemon_pixel/" + stem + ".png");
+        }
+
+        // 3. Form fallback: if alternate form was requested but missing, try base form
+        if (!sp && formId > 0)
+        {
+            std::string base = std::to_string(speciesId);
+            if (isShiny)
+            {
+                sp = loadSprite("sprites/pokemon_pixel/" + base + "s.png");
+            }
+            if (!sp)
+            {
+                sp = loadSprite("sprites/pokemon_pixel/" + base + ".png");
+            }
+        }
+
+        return sp;
+    }
+
+    Sprite *SpriteManager::loadPokemonHDSprite(uint16_t speciesId, uint8_t formId, bool isShiny)
+    {
+        std::string suffix = isShiny ? "s" : "";
+        const char *named = Pokemon::getFormSpriteName(speciesId, formId);
+        std::string spriteStem = (named && named[0] != '\0')
+                              ? std::string(named)
+                              : std::to_string(Pokemon::getFormSpriteId(speciesId, formId));
+
+        // Prefer HD render, then fall back to 96px bundled sprite
+        Sprite *sp = loadSprite("sprites/pokemon_hd/" + spriteStem + suffix + ".png");
+        if (!sp)
+        {
+            sp = loadSprite("sprites/pokemon/" + spriteStem + suffix + ".png");
+        }
+
+        // If form had no sprite of its own, fall back to base species
+        if (!sp && formId > 0)
+        {
+            std::string base = std::to_string(speciesId);
+            sp = loadSprite("sprites/pokemon_hd/" + base + suffix + ".png");
+            if (!sp)
+            {
+                sp = loadSprite("sprites/pokemon/" + base + suffix + ".png");
+            }
+        }
+
+        return sp;
     }
 
     Sprite *SpriteManager::getSprite(uint16_t speciesId, bool isShiny)
@@ -150,7 +277,8 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         if (!initialized)
             init();
 
-        uint32_t cacheKey = makeCacheKey(speciesId, formId, isShiny, false);
+        const bool isPixel = wantPixelForSprite();
+        uint32_t cacheKey = makeCacheKey(speciesId, formId, isShiny, false, isPixel);
 
         // Check cache first; a hit is also the "recently used" signal that keeps it from being evicted.
         auto iterator = spriteCache.find(cacheKey);
@@ -160,40 +288,28 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
             return iterator->second.sprite;
         }
 
-        // Resolve the sprite stem for this form. Prefer the NAME-keyed table: the peer-form
-        // families (Unown letters, Arceus/Silvally types, Vivillon patterns, Alcremie creams,
-        // Furfrou trims, flower colours, seasons, seas) have no numeric PokeAPI id at all, so
-        // getFormSpriteId() cannot reach them. It returns "" for everything else.
-        std::string suffix = isShiny ? "s" : "";
-        const char *named = Pokemon::getFormSpriteName(speciesId, formId);
-        std::string spriteStem = (named && named[0] != '\0')
-                              ? std::string(named)
-                              : std::to_string(Pokemon::getFormSpriteId(speciesId, formId));
-
-        // Prefer the HD render (transparent HOME PNG) for this sprite id, then
-        // fall back to the bundled 96px sprite.
-        Sprite *sprite = loadSprite("sprites/pokemon_hd/" + spriteStem + suffix + ".png");
-        if (!sprite)
+        Sprite *sprite = nullptr;
+        if (isPixel)
         {
-            sprite = loadSprite("sprites/pokemon/" + spriteStem + suffix + ".png");
-        }
-
-        // If a form had no sprite of its own, fall back to the base species (HD then 96px).
-        if (!sprite && formId > 0)
-        {
-            std::string base = std::to_string(speciesId);
-            sprite = loadSprite("sprites/pokemon_hd/" + base + suffix + ".png");
+            sprite = loadPokemonPixelSprite(speciesId, formId, isShiny);
             if (!sprite)
-            {
-                sprite = loadSprite("sprites/pokemon/" + base + suffix + ".png");
-            }
+                sprite = loadPokemonHDSprite(speciesId, formId, isShiny);
         }
+        else
+        {
+            sprite = loadPokemonHDSprite(speciesId, formId, isShiny);
+            if (!sprite)
+                sprite = loadPokemonPixelSprite(speciesId, formId, isShiny);
+        }
+
+        if (!sprite)
+            sprite = loadSprite("sprites/pokemon_pixel/0.png");
 
         // Cache it (even if nullptr, so we don't keep trying to load missing sprites)
         spriteLru.push_front(cacheKey);
         spriteCache[cacheKey] = SpriteEntry{sprite, spriteLru.begin()};
         spriteBytes += bytesOf(sprite);
-        trimToBudget(); // stops at one entry, so the sprite being returned is never the one freed
+        trimToBudget();
 
         return sprite;
     }
@@ -206,9 +322,42 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
 
     Sprite *SpriteManager::getIconSprite(uint16_t speciesId, uint8_t formId, bool isShiny)
     {
-        // We don't have separate icon sprites, so just use regular sprites
-        // The sprite will be cached by getSprite() to avoid duplicate allocations
-        return getSprite(speciesId, formId, isShiny);
+        if (!initialized)
+            init();
+
+        const bool isPixel = wantPixelForIcon();
+        uint32_t cacheKey = makeCacheKey(speciesId, formId, isShiny, true, isPixel);
+
+        auto iterator = spriteCache.find(cacheKey);
+        if (iterator != spriteCache.end())
+        {
+            spriteLru.splice(spriteLru.begin(), spriteLru, iterator->second.lru);
+            return iterator->second.sprite;
+        }
+
+        Sprite *sprite = nullptr;
+        if (isPixel)
+        {
+            sprite = loadPokemonPixelSprite(speciesId, formId, isShiny);
+            if (!sprite)
+                sprite = loadPokemonHDSprite(speciesId, formId, isShiny);
+        }
+        else
+        {
+            sprite = loadPokemonHDSprite(speciesId, formId, isShiny);
+            if (!sprite)
+                sprite = loadPokemonPixelSprite(speciesId, formId, isShiny);
+        }
+
+        if (!sprite)
+            sprite = loadSprite("sprites/pokemon_pixel/0.png");
+
+        spriteLru.push_front(cacheKey);
+        spriteCache[cacheKey] = SpriteEntry{sprite, spriteLru.begin()};
+        spriteBytes += bytesOf(sprite);
+        trimToBudget();
+
+        return sprite;
     }
 
     bool SpriteManager::spriteExists(uint16_t speciesId, bool isShiny)

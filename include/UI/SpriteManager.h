@@ -23,6 +23,17 @@ namespace UI
         ~Sprite();
     };
 
+    enum class SpriteStyle
+    {
+        Auto = 0,     // Theme-adaptive: RetroDS theme -> Pixel Art; Dark/Light theme -> Modern 3D HOME
+        Hybrid = 1,   // Pixel in box/party/dex grids, 3D HOME in summary modal
+        PixelArt = 2, // Authentic DS pixel art everywhere
+        ModernHD = 3  // 3D HOME renders everywhere
+    };
+
+    inline SpriteStyle g_spriteStyle = SpriteStyle::Auto;
+    inline bool g_sdSpriteOverride = true;
+
     class SpriteManager
     {
     public:
@@ -30,6 +41,15 @@ namespace UI
 
         // Cleanup and free all cached sprites
         static void cleanup();
+
+        // Flush all cached Pokemon sprites and inform renderer
+        static void clearCache();
+
+        static SpriteStyle getSpriteStyle();
+        static void setSpriteStyle(SpriteStyle style);
+
+        static bool getSdOverride();
+        static void setSdOverride(bool enabled);
 
         // Get sprite for a Pokemon (normal size)
         // Returns nullptr if sprite not found
@@ -76,6 +96,8 @@ namespace UI
 
     private:
         static Sprite *loadSprite(const std::string &path);
+        static Sprite *loadPokemonPixelSprite(uint16_t speciesId, uint8_t formId, bool isShiny);
+        static Sprite *loadPokemonHDSprite(uint16_t speciesId, uint8_t formId, bool isShiny);
 
         // Pokemon sprites are the only cache that grows with use -- one 256px HD sprite decodes to
         // 256 KB, and a full save has hundreds -- so it is capped and evicts least-recently-used.
@@ -105,17 +127,17 @@ namespace UI
         static bool initialized;
 
         // Generate cache key for Pokemon sprites (supports form ID up to 255)
-        static uint32_t makeCacheKey(uint16_t speciesId, uint8_t formId, bool isShiny, bool isIcon)
+        static uint32_t makeCacheKey(uint16_t speciesId, uint8_t formId, bool isShiny, bool isIcon, bool isPixel = false)
         {
-            // Format: bits 0-15: speciesId, bit 16: isShiny, bit 17: isIcon, bits 18-25: formId
+            // Format: bits 0-15: speciesId, bit 16: isShiny, bit 17: isIcon, bits 18-25: formId, bit 26: isPixel
             return speciesId | (isShiny ? (1 << 16) : 0) | (isIcon ? (1 << 17) : 0) |
-                   (static_cast<uint32_t>(formId) << 18);
+                   (static_cast<uint32_t>(formId) << 18) | (isPixel ? (1 << 26) : 0);
         }
 
         // Legacy cache key for base forms
-        static uint32_t makeCacheKey(uint16_t speciesId, bool isShiny, bool isIcon)
+        static uint32_t makeCacheKey(uint16_t speciesId, bool isShiny, bool isIcon, bool isPixel = false)
         {
-            return makeCacheKey(speciesId, 0, isShiny, isIcon);
+            return makeCacheKey(speciesId, 0, isShiny, isIcon, isPixel);
         }
     };
 }

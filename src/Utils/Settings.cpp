@@ -8,6 +8,7 @@
 #include "Globals.h"
 #include "Names/NameLanguage.h"
 #include "UI/Common.h"
+#include "UI/SpriteManager.h"
 #include "Utils/Logger.h"
 
 namespace Utils
@@ -81,6 +82,21 @@ namespace Utils
             {
                 g_debugLogging = (strcmp(value, "0") != 0);
             }
+            else if (strcmp(key, "spriteStyle") == 0)
+            {
+                if (strcmp(value, "pixel") == 0)
+                    UI::g_spriteStyle = UI::SpriteStyle::PixelArt;
+                else if (strcmp(value, "modern") == 0)
+                    UI::g_spriteStyle = UI::SpriteStyle::ModernHD;
+                else if (strcmp(value, "hybrid") == 0)
+                    UI::g_spriteStyle = UI::SpriteStyle::Hybrid;
+                else
+                    UI::g_spriteStyle = UI::SpriteStyle::Auto;
+            }
+            else if (strcmp(key, "sdSpriteOverride") == 0)
+            {
+                UI::g_sdSpriteOverride = (strcmp(value, "0") != 0);
+            }
             else if (strcmp(key, "language") == 0)
             {
                 // Stored as the PKHeX resource suffix ("fr", "zh-Hant") rather than an index, so
@@ -124,6 +140,17 @@ namespace Utils
         else if (UI::g_themeMode == UI::ThemeMode::Light)
             themeStr = "light";
         fprintf(f, "theme=%s\n", themeStr);
+
+        const char *styleStr = "auto";
+        if (UI::g_spriteStyle == UI::SpriteStyle::PixelArt)
+            styleStr = "pixel";
+        else if (UI::g_spriteStyle == UI::SpriteStyle::ModernHD)
+            styleStr = "modern";
+        else if (UI::g_spriteStyle == UI::SpriteStyle::Hybrid)
+            styleStr = "hybrid";
+        fprintf(f, "spriteStyle=%s\n", styleStr);
+        fprintf(f, "sdSpriteOverride=%d\n", UI::g_sdSpriteOverride ? 1 : 0);
+
         fprintf(f, "autoBackup=%d\n", g_autoBackupEnabled ? 1 : 0);
         fprintf(f, "allowIllegal=%d\n", g_allowIllegalEdits ? 1 : 0);
         fprintf(f, "autoLegalize=%d\n", g_autoLegalizeTransfers ? 1 : 0);
