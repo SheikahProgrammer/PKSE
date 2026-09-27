@@ -101,7 +101,7 @@ namespace UI
         }
 
         // Simple vector icons for the menu's circular buttons (no icon assets). `col` = glyph color,
-        // `bg` = the button fill (used to punch holes). kind: 0 Items (bag), 1 Events (gift box), 2 Trainer (person), 3 Settings (gear).
+        // `bg` = the button fill (used to punch holes). kind: 0 Items (bag), 1 Events (gift box), 2 Pokédex (Poké Ball), 3 Trainer (person), 4 Settings (gear).
         static void drawMenuIcon(PKSEFramebuffer &framebuffer, int centerX, int centerY, int cornerRadius, int kind,
                                  Color iconColor, Color backgroundColor)
         {
@@ -136,6 +136,20 @@ namespace UI
                 framebuffer.drawFilledCircle(centerX + 5, boxY - lidH - 3, 2, backgroundColor);
             }
             else if (kind == 2)
+            { // Pokédex: a vector Poké Ball
+                // Outer circle rim in iconColor
+                framebuffer.drawFilledCircle(centerX, centerY, cornerRadius - 2, iconColor);
+                // Upper half in iconColor, lower half punched with backgroundColor
+                framebuffer.drawFilledCircle(centerX, centerY, cornerRadius - 4, iconColor);
+                framebuffer.drawFilledRect(centerX - cornerRadius + 4, centerY, (cornerRadius - 4) * 2, cornerRadius - 4, backgroundColor);
+                // Center dividing line
+                framebuffer.drawFilledRect(centerX - cornerRadius + 4, centerY - 1, (cornerRadius - 4) * 2, 3, iconColor);
+                // Center button
+                framebuffer.drawFilledCircle(centerX, centerY, std::max(3, (cornerRadius - 2) / 3 + 1), iconColor);
+                framebuffer.drawFilledCircle(centerX, centerY, std::max(2, (cornerRadius - 2) / 3 - 1), backgroundColor);
+                framebuffer.drawFilledCircle(centerX, centerY, std::max(1, (cornerRadius - 2) / 5), iconColor);
+            }
+            else if (kind == 3)
             {                                                        // Trainer: a person bust
                 // head
                 framebuffer.drawFilledCircle(centerX, centerY - cornerRadius / 2, cornerRadius / 2 - 1, iconColor);
@@ -226,12 +240,19 @@ namespace UI
                 const char *label;
                 const char *glyph;
                 int menuIndex;
+                int kind;
             };
-            Icon icons[4] = {{"Items", "I", 3}, {"Events", "E", 4}, {"Trainer", "T", 5}, {"Settings", "S", 6}};
-            const int iconR = 38;
-            const int slot = rW / 4;
+            Icon icons[5] = {
+                {"Items", "I", 3, 0},
+                {"Events", "E", 4, 1},
+                {"Pokédex", "D", 5, 2},
+                {"Trainer", "T", 6, 3},
+                {"Settings", "S", 7, 4}
+            };
+            const int iconR = 36;
+            const int slot = rW / 5;
             const int iconTop = panelY + 22;
-            for (int innerIndex = 0; innerIndex < 4; ++innerIndex)
+            for (int innerIndex = 0; innerIndex < 5; ++innerIndex)
             {
                 const auto &ic = icons[innerIndex];
                 const int centerX = rightColumnX + slot * innerIndex + slot / 2;
@@ -244,7 +265,7 @@ namespace UI
                 framebuffer.drawFilledCircle(centerX, centerY, iconR, focused ? Colors::Primary : Colors::PanelAlt);
                 framebuffer.drawCircle(centerX, centerY, iconR, focused ? Colors::Primary : Colors::Border, 2);
 
-                drawMenuIcon(framebuffer, centerX, centerY, iconR - 12, innerIndex,
+                drawMenuIcon(framebuffer, centerX, centerY, iconR - 10, ic.kind,
                              focused ? Colors::PrimaryText : Colors::Text,
                              focused ? Colors::Primary : Colors::PanelAlt);
 

@@ -2519,6 +2519,249 @@ namespace UI
         }
     }
 
+    void TrainerViewScreen::refreshLivingDex()
+    {
+        livingDexProgress = Pokemon::scanCollection(trainer, bank.get(), livingDexRecords);
+
+        livingDexFilteredIds.clear();
+        uint16_t firstId = 1, lastId = Pokemon::LIVING_DEX_MAX_SPECIES;
+        if (livingDexScope == 0)
+        {
+            lastId = Pokemon::getMaxSpeciesForGame(trainer.getGameGroup());
+        }
+        else if (livingDexScope >= 1 && livingDexScope <= 9)
+        {
+            firstId = Pokemon::GEN_RANGES[livingDexScope - 1].first;
+            lastId = Pokemon::GEN_RANGES[livingDexScope - 1].last;
+        }
+
+        for (uint16_t id = firstId; id <= lastId && id <= Pokemon::LIVING_DEX_MAX_SPECIES; ++id)
+        {
+            const auto &rec = livingDexRecords[id];
+            bool owned = livingDexShinyMode ? rec.shiny : rec.owned;
+            if (livingDexMissingOnly && owned)
+                continue;
+            livingDexFilteredIds.push_back(id);
+        }
+
+        const int totalFiltered = static_cast<int>(livingDexFilteredIds.size());
+        const int pageSize = 30;
+        const int pageCount = std::max(1, (totalFiltered + pageSize - 1) / pageSize);
+        livingDexPage = std::clamp(livingDexPage, 0, pageCount - 1);
+        if (totalFiltered == 0)
+        {
+            livingDexCursor = 0;
+        }
+        else
+        {
+            int maxCursorOnPage = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+            livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCursorOnPage));
+        }
+
+        livingDexDirty = false;
+    }
+
+    void TrainerViewScreen::handleLivingDexInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        const int totalFiltered = static_cast<int>(livingDexFilteredIds.size());
+        const int pageSize = 30;
+        const int pageCount = std::max(1, (totalFiltered + pageSize - 1) / pageSize);
+
+        // Touch handling
+        int touchedId = touchedButtonId(touch);
+        if (touchedId >= 3000 && touchedId <= 3010)
+        {
+            // Scope tabs
+            const int scopeMap[11] = {-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+            int tabIdx = touchedId - 3000;
+            if (tabIdx >= 0 && tabIdx < 11)
+            {
+                livingDexScope = scopeMap[tabIdx];
+                livingDexPage = 0;
+                livingDexCursor = 0;
+                refreshLivingDex();
+            }
+            return;
+        }
+        if (touchedId == 3020)
+        {
+            // Toggle Missing Only
+            livingDexMissingOnly = !livingDexMissingOnly;
+            livingDexPage = 0;
+            livingDexCursor = 0;
+            refreshLivingDex();
+            return;
+        }
+        if (touchedId == 3021)
+        {
+            // Toggle Shiny Mode
+            livingDexShinyMode = !livingDexShinyMode;
+            livingDexPage = 0;
+            livingDexCursor = 0;
+            refreshLivingDex();
+            return;
+        }
+        if (touchedId >= 3100 && touchedId <= 3129)
+        {
+            // Slot tapped
+            int slotIdx = touchedId - 3100;
+            int absoluteIdx = livingDexPage * pageSize + slotIdx;
+            if (absoluteIdx < totalFiltered)
+            {
+                if (livingDexCursor == slotIdx)
+                {
+                    livingDexModalSpecies = livingDexFilteredIds[absoluteIdx];
+                    livingDexModalActive = true;
+                }
+                else
+                {
+                    livingDexCursor = slotIdx;
+                }
+            }
+            return;
+        }
+        if (touchedId == 3999)
+        {
+            livingDexModalActive = false;
+            return;
+        }
+
+        // Modal Active State
+        if (livingDexModalActive)
+        {
+            if (buttonsDown & (HidNpadButton_B | HidNpadButton_A))
+            {
+                livingDexModalActive = false;
+            }
+            return;
+        }
+
+        // Base View Controls
+        if (buttonsDown & HidNpadButton_B)
+        {
+            detailViewActive = false;
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_Left)
+        {
+            if (livingDexCursor % 6 > 0)
+            {
+                livingDexCursor--;
+            }
+            else if (livingDexPage > 0)
+            {
+                livingDexPage--;
+                livingDexCursor += 5;
+            }
+        }
+        if (buttonsDown & HidNpadButton_Right)
+        {
+            if (livingDexCursor % 6 < 5 && livingDexPage * pageSize + livingDexCursor + 1 < totalFiltered)
+            {
+                livingDexCursor++;
+            }
+            else if (livingDexPage + 1 < pageCount)
+            {
+                livingDexPage++;
+                livingDexCursor = (livingDexCursor / 6) * 6;
+                int maxCur = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+                livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCur));
+            }
+        }
+        if (buttonsDown & HidNpadButton_Up)
+        {
+            if (livingDexCursor >= 6)
+            {
+                livingDexCursor -= 6;
+            }
+        }
+        if (buttonsDown & HidNpadButton_Down)
+        {
+            if (livingDexCursor + 6 < pageSize && livingDexPage * pageSize + livingDexCursor + 6 < totalFiltered)
+            {
+                livingDexCursor += 6;
+            }
+        }
+
+        if (buttonsDown & HidNpadButton_L)
+        {
+            if (livingDexPage > 0)
+            {
+                livingDexPage--;
+                int maxCur = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+                livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCur));
+            }
+        }
+        if (buttonsDown & HidNpadButton_R)
+        {
+            if (livingDexPage + 1 < pageCount)
+            {
+                livingDexPage++;
+                int maxCur = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+                livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCur));
+            }
+        }
+        if (buttonsDown & HidNpadButton_ZL)
+        {
+            livingDexPage = std::max(0, livingDexPage - 5);
+            int maxCur = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+            livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCur));
+        }
+        if (buttonsDown & HidNpadButton_ZR)
+        {
+            livingDexPage = std::min(pageCount - 1, livingDexPage + 5);
+            int maxCur = std::min(pageSize - 1, totalFiltered - livingDexPage * pageSize - 1);
+            livingDexCursor = std::clamp(livingDexCursor, 0, std::max(0, maxCur));
+        }
+
+        if (buttonsDown & HidNpadButton_Y)
+        {
+            livingDexMissingOnly = !livingDexMissingOnly;
+            livingDexPage = 0;
+            livingDexCursor = 0;
+            refreshLivingDex();
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_X)
+        {
+            // Cycle Scope: ALL (-1) -> Game (0) -> Gen 1..9 -> ALL (-1)
+            if (livingDexScope == -1)
+                livingDexScope = 0;
+            else if (livingDexScope == 0)
+                livingDexScope = 1;
+            else if (livingDexScope < 9)
+                livingDexScope++;
+            else
+                livingDexScope = -1;
+
+            livingDexPage = 0;
+            livingDexCursor = 0;
+            refreshLivingDex();
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_Minus)
+        {
+            livingDexShinyMode = !livingDexShinyMode;
+            livingDexPage = 0;
+            livingDexCursor = 0;
+            refreshLivingDex();
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_A)
+        {
+            int absoluteIdx = livingDexPage * pageSize + livingDexCursor;
+            if (absoluteIdx >= 0 && absoluteIdx < totalFiltered)
+            {
+                livingDexModalSpecies = livingDexFilteredIds[absoluteIdx];
+                livingDexModalActive = true;
+            }
+        }
+    }
+
     // NOTE: there was once a scanForDlcContent() here, warning at save time when a save held
     // content above its base game's id ceiling. It was removed because its premise was wrong.
     // Owning a DLC gates the AREAS, not the Pokemon: a player without the Expansion Pass can be
@@ -6870,6 +7113,11 @@ namespace UI
                 handleMysteryGiftInput(buttonsDown, touch);
             }
 
+            if (selectedMode == ViewMode::LivingDex)
+            {
+                handleLivingDexInput(buttonsDown, touch);
+            }
+
             // Settings view: Up/Down select a row, A toggles it. The row numbers are the shared
             // SETTINGS_ROW_* constants at the top of this file, so this handler and
             // drawSettingsView's labels/values/badges cannot name different rows.
@@ -7000,14 +7248,14 @@ namespace UI
             // down the pill column
             if (homeMenuIndex < 2) homeMenuIndex++;
             // Storage pill -> icon row
-            else if (homeMenuIndex == 2) homeMenuIndex = 3;
+            else if (homeMenuIndex == 2) homeMenuIndex = 5; // lands in the center on Pokédex
         }
         if (homeMenuIndex >= 3)
-        { // horizontal icon row (3 Items, 4 Events, 5 Trainer, 6 Settings)
+        { // horizontal icon row (3 Items, 4 Events, 5 Pokédex, 6 Trainer, 7 Settings)
             if (buttonsDown & HidNpadButton_Left)
-                homeMenuIndex = (homeMenuIndex == 3) ? 6 : homeMenuIndex - 1;
+                homeMenuIndex = (homeMenuIndex == 3) ? 7 : homeMenuIndex - 1;
             if (buttonsDown & HidNpadButton_Right)
-                homeMenuIndex = (homeMenuIndex == 6) ? 3 : homeMenuIndex + 1;
+                homeMenuIndex = (homeMenuIndex == 7) ? 3 : homeMenuIndex + 1;
             buttonsDown &=
                 ~(HidNpadButton_Left | HidNpadButton_Right); // consume L/R (don't also scroll the box preview)
         }
@@ -7030,16 +7278,19 @@ namespace UI
             selectedMode = ViewMode::MysteryGift;
             break;
         case 5:
-            selectedMode = ViewMode::Trainer;
+            selectedMode = ViewMode::LivingDex;
             break;
         case 6:
+            selectedMode = ViewMode::Trainer;
+            break;
+        case 7:
             selectedMode = ViewMode::Settings;
             break;
         }
 
-        // Touch: tapping a menu pill/icon (ids 100-106) focuses it and acts like A.
+        // Touch: tapping a menu pill/icon (ids 100-107) focuses it and acts like A.
         int homeTap = touchedButtonId(touch);
-        if (homeTap >= 100 && homeTap <= 106)
+        if (homeTap >= 100 && homeTap <= 107)
         {
             homeMenuIndex = homeTap - 100;
             switch (homeMenuIndex)
@@ -7061,9 +7312,12 @@ namespace UI
                 selectedMode = ViewMode::MysteryGift;
                 break;
             case 5:
-                selectedMode = ViewMode::Trainer;
+                selectedMode = ViewMode::LivingDex;
                 break;
             case 6:
+                selectedMode = ViewMode::Trainer;
+                break;
+            case 7:
                 selectedMode = ViewMode::Settings;
                 break;
             }
@@ -7096,7 +7350,7 @@ namespace UI
                 groupMenuActive = false;
                 cursorMode = CursorMode::Menu;
                 break;
-            case 3:
+            case 3: // Items
                 detailViewActive = true;
                 selectedItemIndex = 0;
                 currentPage = 0;
@@ -7105,10 +7359,14 @@ namespace UI
                 detailViewActive = true;
                 refreshEventList();
                 break;
-            case 5: // Trainer info
+            case 5: // Pokédex (Living Dex Tracker)
+                detailViewActive = true;
+                refreshLivingDex();
+                break;
+            case 6: // Trainer info
                 detailViewActive = true;
                 break;
-            case 6: // Settings screen (auto-backup + theme)
+            case 7: // Settings screen (auto-backup + theme)
                 detailViewActive = true;
                 settingsSelectedRow = 0;
                 break;
@@ -7305,6 +7563,9 @@ namespace UI
             case ViewMode::MysteryGift:
                 Panels::drawEventGallery(*this, framebuffer);
                 break;
+            case ViewMode::LivingDex:
+                Panels::drawLivingDexView(*this, framebuffer);
+                break;
             case ViewMode::Trainer:
                 drawTrainerView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth, CONTENT_PANEL_HEIGHT);
                 break;
@@ -7487,7 +7748,7 @@ namespace UI
         // overlay owns input). Drawing one here as well put two bars in the frame -- invisible,
         // because the second covered the first exactly, but wasted work and indistinguishable from
         // a real double-bar bug -- one nav bar per frame, always.
-        if (!details.active && !(detailViewActive && selectedMode == ViewMode::MysteryGift))
+        if (!details.active && !(detailViewActive && (selectedMode == ViewMode::MysteryGift || selectedMode == ViewMode::LivingDex)))
             drawNavBar(framebuffer, instructions);
         const int footerY = framebuffer.getHeight() - NAV_BAR_HEIGHT;
 
