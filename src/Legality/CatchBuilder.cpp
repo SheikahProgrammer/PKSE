@@ -75,7 +75,8 @@ namespace Legality
         std::vector<CatchOption> options;
         const Enums::GameVersion group = trainer.getGameGroup();
         const EncounterTable *table = getEncounterTable(group);
-        if (!table || species == 0)
+        // Gen 1/2 have DVs, not a PID: none of the generation below applies, so only Custom is offered.
+        if (!table || species == 0 || generationOf(group) <= 2)
             return options;
         const uint8_t versionBit = encounterVersionBit(static_cast<Enums::GameVersion>(version));
 
@@ -112,7 +113,7 @@ namespace Legality
                 option.metForm = stage.form;
                 option.minMetLevel = std::max<uint8_t>(1, row.levelMin);
                 option.maxMetLevel = std::max(option.minMetLevel, row.levelMax);
-                option.minLevel = std::max(option.minMetLevel, floor);
+                option.minLevel = std::max<uint8_t>(stage.stepsBack ? std::min(100, option.minMetLevel + 1) : option.minMetLevel, floor);
                 option.metLocation = row.location;
                 option.title = encounterLocationName(version, row.location);
                 option.method = getEncounterMethodDescription(static_cast<EncounterKind>(row.kind), row.location, row.flags);
@@ -131,15 +132,18 @@ namespace Legality
                 option.note = note;
                 // The same place listed twice (slots of one table) is one choice: widen its levels.
                 auto same = std::find_if(options.begin(), options.end(), [&](const CatchOption &o) {
+                    // Only when the level ranges overlap or touch: grass Lv 2-3 and surfing Lv 20-25 on one
+                    // route must stay apart, or a met level no slot has could be picked.
                     return o.origin == option.origin && o.metSpecies == option.metSpecies && o.metLocation == option.metLocation &&
                            o.row.kind == option.row.kind && o.row.fixedBall == option.row.fixedBall &&
-                           o.row.shiny == option.row.shiny && o.row.flawlessIVs == option.row.flawlessIVs;
+                           o.row.shiny == option.row.shiny && o.row.flawlessIVs == option.row.flawlessIVs &&
+                           option.minMetLevel <= o.maxMetLevel + 1 && o.minMetLevel <= option.maxMetLevel + 1;
                 });
                 if (same != options.end())
                 {
                     same->minMetLevel = std::min(same->minMetLevel, option.minMetLevel);
                     same->maxMetLevel = std::max(same->maxMetLevel, option.maxMetLevel);
-                    same->minLevel = std::max(same->minMetLevel, floor);
+                    same->minLevel = std::max<uint8_t>(stage.stepsBack ? std::min(100, same->minMetLevel + 1) : same->minMetLevel, floor);
                     continue;
                 }
                 options.push_back(option);
@@ -180,7 +184,7 @@ namespace Legality
         return options;
     }
 
-    void applyCatch(Pokemon::Pokemon &pokemon, const Trainer::Trainer &trainer, uint8_t version, uint16_t species,
+    bool applyCatch(Pokemon::Pokemon &pokemon, const Trainer::Trainer &trainer, uint8_t version, uint16_t species,
                     uint8_t form, const CatchOption &option, uint8_t metLevel, uint8_t level, bool shiny)
     {
         const Enums::GameVersion group = trainer.getGameGroup();
@@ -197,6 +201,12 @@ namespace Legality
         level = std::max<uint8_t>(std::max(level, metLevel), option.minLevel);
         level = std::min<uint8_t>(level, 100);
 
+        // A forced gender the species cannot be is unsatisfiable: refuse rather than search forever.
+        if (fixedGender != ENCOUNTER_GENDER_ANY &&
+            ((pi.genderRatio == 255) != (fixedGender == 2) || (pi.genderRatio == 254 && fixedGender == 0) ||
+             (pi.genderRatio == 0 && fixedGender == 1)))
+            return false;
+        bool found = false;
         uint32_t pid = 0;
         uint8_t ivs[6] = {0, 0, 0, 0, 0, 0}; // HP ATK DEF SPE SPA SPD
         auto genderOk = [&](uint32_t candidate) {
@@ -211,7 +221,7 @@ namespace Legality
             // (nature = rand % 25). Statics and gifts are plain Method 1: PID then IVs.
             const bool methodJ = group == Enums::GameVersion::DP || group == Enums::GameVersion::PT;
             const int levelSpan = option.maxMetLevel - option.minMetLevel + 1;
-            for (int attempt = 0; attempt < 4000000; ++attempt)
+            for (int attempt = 0; attempt < 2500000; ++attempt)
             {
                 Lcrng rng{Utils::rand32()};
                 uint32_t candidate;
@@ -248,6 +258,7 @@ namespace Legality
                 ivs[4] = (iv2 >> 5) & 31;
                 ivs[5] = (iv2 >> 10) & 31;
                 pid = candidate;
+                found = true;
                 break;
             }
         }
@@ -256,7 +267,7 @@ namespace Legality
             // Gen 5+: PID and IVs are independent. Gen 5 still reads gender from the PID's low byte and
             // the ability from bit 16, and keeps PID bit 31 tied to the trainer's id parity.
             const int abilitySlot = static_cast<int>(Utils::rand32() & 1);
-            for (int attempt = 0; attempt < 4000000; ++attempt)
+            for (int attempt = 0; attempt < 2500000; ++attempt)
             {
                 uint32_t candidate = Utils::rand32();
                 if (generation <= 5)
@@ -270,11 +281,16 @@ namespace Legality
                 if (generation < 6 && shinyFromPid(candidate, trainer.ID32, generation) != shiny)
                     continue;
                 pid = candidate;
+                found = true;
                 break;
             }
             for (uint8_t &iv : ivs)
                 iv = static_cast<uint8_t>(Utils::rand32() % 32);
         }
+
+        // No PID satisfied everything: write nothing rather than a PID-0 Pokemon that contradicts itself.
+        if (!found)
+            return false;
 
         // Guaranteed perfect IVs (legendaries, Max Raid style statics): that many random stats at 31.
         if (!hatched && option.row.flawlessIVs > 0)
@@ -370,5 +386,6 @@ namespace Legality
         pokemon.setFriendship(hatched ? 120 : pi.baseFriendship);
         pokemon.recalculateStats();
         pokemon.refreshChecksum();
+        return true;
     }
 }

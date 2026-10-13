@@ -548,6 +548,11 @@ namespace UI
         // success/failure handling can't drift between them.
         void performSave(const std::string &destDir, bool injectToTitle);
         bool hasUnsavedChanges = false;
+        /// Pokemon whose checksum was already wrong when the save loaded (Bad Eggs / corrupt slots).
+        /// performSave refreshes every OTHER checksum; these are left exactly as found, so saving
+        /// never turns a Bad Egg into a "valid" Pokemon full of garbage. A slot given a new Pokemon
+        /// holds a different object, so it is refreshed normally.
+        std::vector<const Pokemon::Pokemon *> corruptAtLoad;
         bool exitingWithUnsavedChanges = false;
         bool exitingViaPlus = false; // True when exiting via + button (exit app) vs B button (go back)
 

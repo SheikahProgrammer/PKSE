@@ -30,6 +30,8 @@ namespace UI
         bool curDown = false, prevDown = false;
         int curX = 0, curY = 0; // latest touch position
         int begX = 0, begY = 0; // position where the current touch started (recorded on the press edge)
+        bool latched = false;   // this touch began during a pop-in: mapped through its scale throughout
+        float latchX = 0, latchY = 0, latchScale = 1;
     };
 }
 

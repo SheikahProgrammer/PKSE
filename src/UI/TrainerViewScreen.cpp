@@ -860,6 +860,14 @@ namespace UI
         }
 
         // Initialize Poképark Living Habitat
+        for (const auto &member : trainer.party)
+            if (member && member->speciesID() != 0 && !member->checksumValid())
+                corruptAtLoad.push_back(member.get());
+        for (const auto &box : trainer.boxes)
+            for (const auto &stored : box)
+                if (stored && stored->speciesID() != 0 && !stored->checksumValid())
+                    corruptAtLoad.push_back(stored.get());
+
         UI::PokeparkManager::instance().initialize(&trainer, bank.get());
         UI::PokeparkManager::instance().adoptLegacyResidents(trainer, resumeKey(), titleName);
 
@@ -3130,8 +3138,12 @@ namespace UI
         if (!custom)
         {
             const Legality::CatchOption &option = catchChooser.options[catchChooser.selected];
-            Legality::applyCatch(*mon, trainer, version, catchChooser.species, catchChooser.form, option,
-                                 catchChooser.metLevel, option.minLevel, catchChooser.shiny);
+            if (!Legality::applyCatch(*mon, trainer, version, catchChooser.species, catchChooser.form, option,
+                                      catchChooser.metLevel, option.minLevel, catchChooser.shiny))
+            {
+                postStatus("Couldn't roll a legal one for that (try another met level, or not shiny).", 300);
+                return; // chooser stays open
+            }
             mon->setNickname(Utils::utf8ToUtf16(defaultNicknameFor(*mon)));
             mon->refreshChecksum();
             where = option.origin == Legality::CatchOption::Origin::Hatched ? "Hatched" : "Caught at " + option.title;
@@ -3312,12 +3324,16 @@ namespace UI
         // Every Pokemon's checksum is recomputed first. Edits write fields directly, and only some
         // formats' writers recompute it on the way out; a Pokemon written with a stale checksum is a
         // Bad Egg in-game. Recomputing a correct one changes nothing, so this is always safe.
+        // Not the ones that were already corrupt when loaded (see corruptAtLoad).
+        auto wasCorrupt = [&](const Pokemon::Pokemon *p) {
+            return std::find(corruptAtLoad.begin(), corruptAtLoad.end(), p) != corruptAtLoad.end();
+        };
         for (auto &member : trainer.party)
-            if (member && member->speciesID() != 0)
+            if (member && member->speciesID() != 0 && !wasCorrupt(member.get()))
                 member->refreshChecksum();
         for (auto &box : trainer.boxes)
             for (auto &stored : box)
-                if (stored && stored->speciesID() != 0)
+                if (stored && stored->speciesID() != 0 && !wasCorrupt(stored.get()))
                     stored->refreshChecksum();
         const bool passed = Save::saveTrainerInfo(trainer, destDir.c_str(), titleId, userUid, injectToTitle);
         saveConfirmActive = false;

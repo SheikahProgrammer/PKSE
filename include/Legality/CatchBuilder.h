@@ -58,7 +58,8 @@ namespace Legality
     /// Makes a freshly created Pokémon (the creator's format-correct default) the one `option` gives:
     /// met at `metLevel` (clamped to the option), now at `level` (raised to the option's floor), shiny
     /// if asked and allowed. Rewrites PID / IVs / nature / gender / ability / moves / met data / ball.
-    void applyCatch(Pokemon::Pokemon &pokemon, const Trainer::Trainer &trainer, uint8_t version, uint16_t species,
+    /// False (Pokemon untouched beyond the default) when no PID satisfies the encounter's rules.
+    bool applyCatch(Pokemon::Pokemon &pokemon, const Trainer::Trainer &trainer, uint8_t version, uint16_t species,
                     uint8_t form, const CatchOption &option, uint8_t metLevel, uint8_t level, bool shiny);
 
     /// The location's name in `version`'s own location table (sentinels named too).

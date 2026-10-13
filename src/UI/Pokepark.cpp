@@ -6,6 +6,7 @@
 #include <ctime>
 #include <fstream>
 #include <sstream>
+#include <sys/stat.h>
 
 #include "UI/Pokepark.h"
 #include "Trainer/Trainer.h"
@@ -1041,6 +1042,8 @@ namespace UI
     {
         std::ifstream file("sdmc:/PKSE/pokepark.txt");
         if (!file.is_open())
+            file.open("sdmc:/PKSE/pokepark.txt.tmp"); // interrupted between remove and rename
+        if (!file.is_open())
             file.open("/switch/PKSE/pokepark.txt");
         if (!file.is_open())
             return;
@@ -1129,6 +1132,8 @@ namespace UI
                 }
                 for (size_t i = textAt; i < parts.size(); ++i)
                     ev.text += (i > textAt ? "|" : "") + parts[i];
+                while (!ev.text.empty() && ev.text.back() == ' ')
+                    ev.text.pop_back(); // the guard space that keeps an empty text field on the line
                 journal.push_back(ev);
             }
             else if (section == "relationships")
@@ -1155,11 +1160,24 @@ namespace UI
         }
     }
 
+    // Names and journal text go into a '|'-separated, line-based file: a '|' or newline in one would
+    // shift every field after it.
+    static std::string field(const std::string &text)
+    {
+        std::string out = text;
+        for (char &c : out)
+            if (c == '|' || c == '\n' || c == '\r')
+                c = c == '|' ? '/' : ' ';
+        return out;
+    }
+
     void PokeparkManager::saveState()
     {
-        std::ofstream file("sdmc:/PKSE/pokepark.txt");
-        if (!file.is_open())
-            file.open("/switch/PKSE/pokepark.txt");
+        // Written to a temporary file and renamed over the old one, so a crash or power-off mid-write
+        // leaves the previous park intact instead of a truncated one.
+        mkdir("sdmc:/PKSE", 0777);
+        const std::string finalPath = "sdmc:/PKSE/pokepark.txt", tempPath = finalPath + ".tmp";
+        std::ofstream file(tempPath, std::ios::trunc);
         if (!file.is_open())
             return;
 
@@ -1172,7 +1190,7 @@ namespace UI
         for (const auto &r : residents)
         {
             file << r.id << "|" << r.species << "|" << static_cast<int>(r.form) << "|" << (r.shiny ? "1" : "0") << "|"
-                 << r.name << "|" << r.sourceInfo << "|" << static_cast<int>(r.type1) << "|"
+                 << field(r.name) << "|" << field(r.sourceInfo) << "|" << static_cast<int>(r.type1) << "|"
                  << static_cast<int>(r.type2) << "|" << static_cast<int>(r.homeHabitat) << "|"
                  << static_cast<int>(r.personality) << "|" << static_cast<int>(r.nature) << "|" << r.bond << "|"
                  << static_cast<int>(r.energy) << "|" << static_cast<int>(r.social) << "|"
@@ -1188,7 +1206,7 @@ namespace UI
             for (size_t i = 0; i < ev.residentIds.size(); ++i)
                 ids += (i ? "," : "") + ev.residentIds[i];
             file << ev.timestamp << "|" << ev.timeStr << "|" << static_cast<int>(ev.kind) << "|" << ev.habitatName
-                 << "|" << ev.species1 << "|" << ev.species2 << "|" << ids << "|" << ev.text << "\n";
+                 << "|" << ev.species1 << "|" << ev.species2 << "|" << ids << "|" << field(ev.text) << " \n";
         }
         file << "\n";
 
@@ -1199,6 +1217,14 @@ namespace UI
             file << rel.firstId << "|" << rel.secondId << "|" << rel.friendship << "|" << rel.affection << "|"
                  << rel.rivalry << "|" << rel.sharedMoments << "|" << rel.lastEventAt << "|" << rel.lastConflictAt
                  << "|" << static_cast<int>(rel.announced) << "\n";
+        }
+        file.close();
+        // FAT cannot rename over an existing file: drop the old one first. Until the rename lands,
+        // loadState() reads the .tmp copy.
+        if (!file.fail() && std::rename(tempPath.c_str(), finalPath.c_str()) != 0)
+        {
+            std::remove(finalPath.c_str());
+            std::rename(tempPath.c_str(), finalPath.c_str());
         }
     }
 

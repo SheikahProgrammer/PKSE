@@ -29,6 +29,8 @@ namespace Utils
             s_loaded = true;
             FILE *f = fopen(resumePath().c_str(), "r");
             if (!f)
+                f = fopen((resumePath() + ".tmp").c_str(), "r"); // interrupted between remove and rename
+            if (!f)
                 return;
             // Long enough for an absolute SD path as a section name.
             char line[1024];
@@ -57,7 +59,9 @@ namespace Utils
         static void write()
         {
             mkdir(BASE_SAVE_DIRECTORY.c_str(), 0777);
-            FILE *f = fopen(resumePath().c_str(), "w");
+            // Temp file + rename: a crash mid-write keeps the previous file.
+            const std::string tempPath = resumePath() + ".tmp";
+            FILE *f = fopen(tempPath.c_str(), "w");
             if (!f)
             {
                 logErrorToFile("Failed to write resume file", resumePath().c_str());
@@ -69,7 +73,13 @@ namespace Utils
                 for (const auto &[key, value] : fields)
                     fprintf(f, "%s=%s\n", key.c_str(), value.c_str());
             }
-            fclose(f);
+            // FAT cannot rename over an existing file, so the old one goes first; until the rename
+            // lands, load() reads the .tmp copy.
+            if (fclose(f) == 0 && std::rename(tempPath.c_str(), resumePath().c_str()) != 0)
+            {
+                std::remove(resumePath().c_str());
+                std::rename(tempPath.c_str(), resumePath().c_str());
+            }
         }
 
         Fields get(const std::string &section)
