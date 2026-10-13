@@ -3308,6 +3308,17 @@ namespace UI
         // The game's "current box" is kept in sync live while a box view is open (see update()), so
         // it already reflects wherever the user last was -- including a box change made in Storage
         // before backing out (Storage's own X sorts; this game save happens later). Nothing to do here.
+        //
+        // Every Pokemon's checksum is recomputed first. Edits write fields directly, and only some
+        // formats' writers recompute it on the way out; a Pokemon written with a stale checksum is a
+        // Bad Egg in-game. Recomputing a correct one changes nothing, so this is always safe.
+        for (auto &member : trainer.party)
+            if (member && member->speciesID() != 0)
+                member->refreshChecksum();
+        for (auto &box : trainer.boxes)
+            for (auto &stored : box)
+                if (stored && stored->speciesID() != 0)
+                    stored->refreshChecksum();
         const bool passed = Save::saveTrainerInfo(trainer, destDir.c_str(), titleId, userUid, injectToTitle);
         saveConfirmActive = false;
 

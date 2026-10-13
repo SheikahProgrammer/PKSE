@@ -298,8 +298,11 @@ namespace Legality
         if (otNameStr.size() > 12)
             add(report, Severity::Warning, "OT name longer than 12 characters");
 
+        // A Pokemon being edited carries a stale checksum until it is saved: edits write fields
+        // directly, and the save recomputes every checksum before writing (performSave). So this is
+        // a note, not a legality problem -- the game will never see the stale value.
         if (!pokemon.checksumValid())
-            add(report, Severity::Warning, "Stored checksum is invalid");
+            add(report, Severity::Info, "Checksum out of date -- recalculated when you save");
 
         // Runs last so its findings read as the conclusion after the field checks, and
         // it takes no game argument: the tables follow the pokemon's origin version, not the
