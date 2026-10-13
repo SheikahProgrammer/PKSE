@@ -6,6 +6,7 @@
 #include "UI/Common.h"
 #include "UI/ScreenChrome.h"
 #include "UI/TouchInput.h"
+#include "UI/SystemIcons.h"
 #include "UI/Dialogs/DialogFrame.h"
 #include "Utils/HelperUtilities.h"
 #include "Utils/FileUtilities.h"
@@ -16,22 +17,38 @@ using namespace Utils;
 namespace UI
 {
     // UI Layout constants
-    constexpr int CARD_X = 40;
-    constexpr int CARD_Y = 84;
-    constexpr int CARD_W = 1200;
-    constexpr int LIST_ROW_H = 62;
-    constexpr int LIST_MAX_VISIBLE = 8; // rows that fit in the card before scrolling
+    // Where things go. The PKForge theme shows the backups as a popup window over the grid -- the
+    // game on the left, its saves on the right -- like PKForge's save menu; the other themes keep the
+    // full-width card. Draw and touch both read this, so a tap always lands on what is drawn.
+    struct BackupLayout
+    {
+        int cardX, cardY, cardW, cardH; // the card / window
+        int listX, listW, listTop;      // the rows
+        int rowH, visible;              // row pitch, rows before scrolling
+    };
+
+    static BackupLayout backupLayout()
+    {
+        if (isPkForgeTheme())
+        {
+            constexpr int w = 960, h = 576, x = (1280 - w) / 2, y = HEADER_HEIGHT + 14;
+            return {x, y, w, h, x + 280, w - 280 - 22, y + 62, 56, 8};
+        }
+        constexpr int x = 40, y = 84, w = 1200;
+        return {x, y, w, 720 - y - NAV_BAR_HEIGHT - 12, x + 14, w - 28, y + 62, 62, 8};
+    }
 
     // Scroll window: keep the selected row visible (centered when scrolling).
     static int firstVisibleRow(int selectedIndex, int total)
     {
-        if (total <= LIST_MAX_VISIBLE)
+        const int visible = backupLayout().visible;
+        if (total <= visible)
             return 0;
-        int first = selectedIndex - LIST_MAX_VISIBLE / 2;
+        int first = selectedIndex - visible / 2;
         if (first < 0)
             first = 0;
-        if (first > total - LIST_MAX_VISIBLE)
-            first = total - LIST_MAX_VISIBLE;
+        if (first > total - visible)
+            first = total - visible;
         return first;
     }
 
@@ -96,7 +113,7 @@ namespace UI
 
     /// Top of the list, under the heading divider. Shared by the draw and the touch hit test --
     /// when those two disagreed, every tap landed one row off.
-    int BackupSelectionScreen::backupListTop() const { return CARD_Y + 62; }
+    int BackupSelectionScreen::backupListTop() const { return backupLayout().listTop; }
 
     void BackupSelectionScreen::update(const PadState &pad, const TouchInput &touch)
     {
@@ -154,12 +171,13 @@ namespace UI
         // Touch: tap a backup tile to select + open it (account for the scroll window).
         if (touch.justPressed())
         {
-            const int startY = backupListTop(), tileX = CARD_X + 14, tileW = CARD_W - 28;
+            const BackupLayout layout = backupLayout();
+            const int startY = layout.listTop, tileX = layout.listX, tileW = layout.listW;
             if (touch.x() >= tileX && touch.x() < tileX + tileW && touch.y() >= startY)
             {
-                int visIdx = (touch.y() - startY) / LIST_ROW_H;
+                int visIdx = (touch.y() - startY) / layout.rowH;
                 int index = firstVisibleRow(selectedIndex, (int)backups.size()) + visIdx;
-                if (visIdx >= 0 && visIdx < LIST_MAX_VISIBLE && index < (int)backups.size())
+                if (visIdx >= 0 && visIdx < layout.visible && index < (int)backups.size())
                 {
                     selectedIndex = index;              // draws selected this frame
                     // ...and opens on the next
@@ -228,23 +246,59 @@ namespace UI
     {
         framebuffer.clear(Colors::Background);
         drawTitleBar(framebuffer, titleName, "Backups");
+        const BackupLayout layout = backupLayout();
+        const char *hint = selectedIndex > 0 ? "A: Open  |  X: Delete  |  B: Back" : "A: Open  |  B: Back";
 
-        // Leave a real gap under the card so the nav bar's shadow falls on the background, not on
-        // the card edge. (Was a bare "- 46", which sat flush against the taller bar.)
-        const int cardH = framebuffer.getHeight() - CARD_Y - NAV_BAR_HEIGHT - 12;
-        framebuffer.drawCard(CARD_X, CARD_Y, CARD_W, cardH);
-        framebuffer.drawText(CARD_X + 18, CARD_Y + 14, "Save Backups", Colors::Text, TextStyle::Heading);
-        framebuffer.drawHDivider(CARD_X + 18, CARD_Y + 50, CARD_W - 36);
-
-        drawBackupList(framebuffer);
-
-        if (selectedIndex > 0)
+        if (isPkForgeTheme())
         {
-            drawNavBar(framebuffer, "A: Select  |  X: Delete  |  B: Back");
+            PopIn pop(framebuffer, "backup.window");
+            framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0x14, 0x12, 0x1D, 0x66));
+            framebuffer.pkPanel(layout.cardX, layout.cardY, layout.cardW, layout.cardH);
+            framebuffer.pkHeaderStrip(layout.cardX + 10, layout.cardY + 10, layout.cardW - 20, 38, "Choose a save to open",
+                                      Pksm::HeaderBlue, false, TextStyle::Heading);
+
+            // The game, on the left: its art on a label sticker, its name, how many backups it has.
+            const int colX = layout.cardX + 24, colW = 236, artSize = 176;
+            const int artX = colX + (colW - artSize) / 2, artY = layout.cardY + 66;
+            framebuffer.drawFilledRoundedRect(artX - 8, artY - 8, artSize + 16, artSize + 16, 8, Pksm::PaperShade);
+            framebuffer.drawRoundedRect(artX - 8, artY - 8, artSize + 16, artSize + 16, 8, Pksm::LogoVoid, 2);
+            const IconImage &icon = SystemIcons::titleIcon(titleId);
+            if (icon.valid())
+                framebuffer.drawImageScaled(artX, artY, icon.width, icon.height, artSize, artSize, icon.data, 4);
+            int textY = artY + artSize + 22;
+            for (const auto &line : wrapTextToWidth(framebuffer, titleName, colW, TextStyle::Body))
+            {
+                framebuffer.drawText(colX, textY, line, Pksm::Ink);
+                textY += 26;
+            }
+            const int backupCount = static_cast<int>(backups.size()) - 1;
+            framebuffer.drawText(colX, textY + 4,
+                                 backupCount == 0 ? std::string("No backups yet")
+                                                  : std::to_string(backupCount) + (backupCount == 1 ? " backup" : " backups"),
+                                 Pksm::InkSoft, TextStyle::Caption);
+            // What the highlighted row will do.
+            const std::string about =
+                selectedIndex == 0 ? (g_autoBackupEnabled ? "Reads the live save, keeping a dated backup of it first."
+                                                          : "Reads the live save into a working copy.")
+                                   : "Opens this backup. Your live save is not touched.";
+            int aboutY = textY + 36;
+            for (const auto &line : wrapTextToWidth(framebuffer, about, colW, TextStyle::Caption))
+            {
+                framebuffer.drawText(colX, aboutY, line, Pksm::InkSoft, TextStyle::Caption);
+                aboutY += 20;
+            }
+            framebuffer.drawFilledRect(layout.listX - 16, layout.listTop, 2, layout.visible * layout.rowH, Pksm::LogoGrid);
+
+            drawBackupList(framebuffer);
+            drawPopupHints(framebuffer, layout.cardX + 12, layout.cardY + layout.cardH - 50, layout.cardW - 24, 40, hint);
         }
         else
         {
-            drawNavBar(framebuffer, "A: Select  |  B: Back");
+            framebuffer.drawCard(layout.cardX, layout.cardY, layout.cardW, layout.cardH);
+            framebuffer.drawText(layout.cardX + 18, layout.cardY + 14, "Save Backups", Colors::Text, TextStyle::Heading);
+            framebuffer.drawHDivider(layout.cardX + 18, layout.cardY + 50, layout.cardW - 36);
+            drawBackupList(framebuffer);
+            drawNavBar(framebuffer, hint);
         }
 
         // Transient failure notice, centred just above the nav bar (same treatment as the editor's).
@@ -269,28 +323,28 @@ namespace UI
 
     void BackupSelectionScreen::drawBackupList(PKSEFramebuffer &framebuffer)
     {
-        const int startY = backupListTop();
+        const BackupLayout layout = backupLayout();
+        const int startY = layout.listTop;
         const int total = (int)backups.size();
         const int first = firstVisibleRow(selectedIndex, total);
-        // The list eases to `first` instead of jumping a row at a time (the picker list's spring);
-        // rows are drawn at a pixel offset, one extra, clipped to the window.
-        const float scrollPx = framebuffer.spring("backup.list", static_cast<float>(first * LIST_ROW_H), 600.0f,
-                                                  49.0f, static_cast<float>(first * LIST_ROW_H));
-        const int drawFirst = std::max(0, static_cast<int>(scrollPx) / LIST_ROW_H);
-        const int last = std::min(total, drawFirst + LIST_MAX_VISIBLE + 1);
-        framebuffer.setClipRect(CARD_X, startY, CARD_W, LIST_MAX_VISIBLE * LIST_ROW_H);
+        // The list eases to `first` instead of jumping a row at a time; rows are drawn at a pixel
+        // offset, one extra, clipped to the window.
+        const float scrollPx = framebuffer.spring("backup.list", static_cast<float>(first * layout.rowH), 600.0f, 49.0f,
+                                                  static_cast<float>(first * layout.rowH));
+        const int drawFirst = std::max(0, static_cast<int>(scrollPx) / layout.rowH);
+        const int last = std::min(total, drawFirst + layout.visible + 1);
+        framebuffer.setClipRect(layout.listX - 6, startY, layout.listW + 12, layout.visible * layout.rowH);
         for (int row = drawFirst; row < last; row++)
         {
-            int itemY = startY + row * LIST_ROW_H - static_cast<int>(std::lround(scrollPx));
+            int itemY = startY + row * layout.rowH - static_cast<int>(std::lround(scrollPx));
             bool selected = (row == selectedIndex);
-            // Row 0 is the "create new backup" action — accent it to stand out.
-            drawHomeTile(framebuffer, CARD_X + 14, itemY, CARD_W - 28, LIST_ROW_H - 10, backups[row].displayName,
+            // Row 0 is the "load the live save" action -- accent it to stand out.
+            drawHomeTile(framebuffer, layout.listX, itemY, layout.listW, layout.rowH - 10, backups[row].displayName,
                          selected, (row == 0));
         }
         framebuffer.clearClip();
-        // Scrollbar on the card's right edge when the list overflows -- same thumb as the details editor.
-        drawScrollbar(framebuffer, CARD_X + CARD_W - 10, startY, LIST_MAX_VISIBLE * LIST_ROW_H, total * LIST_ROW_H,
-                      static_cast<int>(scrollPx));
+        drawScrollbar(framebuffer, layout.listX + layout.listW + 4, startY, layout.visible * layout.rowH,
+                      total * layout.rowH, static_cast<int>(scrollPx));
     }
 
     void BackupSelectionScreen::drawDeleteConfirmation(PKSEFramebuffer &framebuffer)
