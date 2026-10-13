@@ -288,31 +288,33 @@ namespace UI
                 int menuIndex;
                 int kind;
             };
-            Icon icons[6] = {
+            // Settings and the Poképark itself live on the top-level menu (they belong to no one game);
+            // here the Poképark tile picks who from this game lives there.
+            constexpr int ICON_COUNT = 5;
+            Icon icons[ICON_COUNT] = {
                 {"Items", "I", 3, 0},
                 {"Events", "E", 4, 1},
                 {"Pokédex", "D", 5, 2},
                 {"Poképark", "P", 6, 5},
                 {"Trainer", "T", 7, 3},
-                {"Settings", "S", 8, 4}
             };
             const int iconR = 32;
-            const int slot = rW / 6;
+            const int slot = rW / ICON_COUNT;
             const int iconTop = panelY + 22;
             if (pk)
             {
                 // DsCard: a navy tile per destination, the icon as hero and the label beneath.
                 constexpr int tileGap = 10, tileH = 104;
-                const int tileW = (rW - tileGap * 5) / 6;
+                const int tileW = (rW - tileGap * (ICON_COUNT - 1)) / ICON_COUNT;
                 const int tileY = panelY + 4;
-                for (int innerIndex = 0; innerIndex < 6; ++innerIndex)
+                for (int innerIndex = 0; innerIndex < ICON_COUNT; ++innerIndex)
                 {
                     const auto &ic = icons[innerIndex];
                     const int tileX = rightColumnX + innerIndex * (tileW + tileGap);
                     const bool focused = (screen.homeMenuIndex == ic.menuIndex);
                     // DsCard's focus pop: up to 105% on a springy curve (130ms), back on a smooth one.
-                    static const char *const tileIds[6] = {"home.tile.0", "home.tile.1", "home.tile.2",
-                                                           "home.tile.3", "home.tile.4", "home.tile.5"};
+                    static const char *const tileIds[ICON_COUNT] = {"home.tile.0", "home.tile.1", "home.tile.2",
+                                                                    "home.tile.3", "home.tile.4"};
                     const float pop = framebuffer.spring(tileIds[innerIndex], focused ? 1.05f : 1.0f, 900.0f,
                                                          focused ? 33.0f : 60.0f, 1.0f);
                     framebuffer.pushScale(tileX + tileW / 2.0f, tileY + tileH / 2.0f, pop);
@@ -320,7 +322,7 @@ namespace UI
                         framebuffer.pkSelectedButton(tileX, tileY, tileW, tileH, 6);
                     else
                         framebuffer.pkBlackButton(tileX, tileY, tileW, tileH, 6);
-                    static const char *const pksmIcons[6] = {"bag", "events", "pokedex", "park", "trainer", "settings"};
+                    static const char *const pksmIcons[ICON_COUNT] = {"bag", "events", "pokedex", "park", "trainer"};
                     Sprite *icon = SpriteManager::getUiIcon(pksmIcons[innerIndex]);
                     if (icon && icon->data)
                     {
@@ -343,7 +345,7 @@ namespace UI
                 }
                 return;
             }
-            for (int innerIndex = 0; innerIndex < 6; ++innerIndex)
+            for (int innerIndex = 0; innerIndex < ICON_COUNT; ++innerIndex)
             {
                 const auto &ic = icons[innerIndex];
                 const int centerX = rightColumnX + slot * innerIndex + slot / 2;

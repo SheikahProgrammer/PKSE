@@ -5,6 +5,7 @@
 #include "UI/SaveSelectScreen.h"
 #include "UI/BackupSelectionScreen.h"
 #include "UI/TrainerViewScreen.h"
+#include "UI/HubScreens.h"
 #include "Utils/HelperUtilities.h"
 #include "Utils/Logger.h"
 #include "Utils/FileUtilities.h"
@@ -75,6 +76,16 @@ namespace UI
                 // Back from backup/trainer -> return so run() rebuilds the picker (re-lists saves).
                 return;
             }
+            if (selectScreen.hubRequest() != SaveSelectScreen::HubRequest::None)
+            {
+                // The places that belong to no one game run as their own screens; the picker is
+                // rebuilt afterwards (and lands back on the same trainer and game).
+                if (selectScreen.hubRequest() == SaveSelectScreen::HubRequest::Pokepark)
+                    runHubScreen<PokeparkScreen>();
+                else
+                    runHubScreen<SettingsScreen>();
+                return;
+            }
             if (selectScreen.hasSelectedFile())
             {
                 // A loose save skips backup selection entirely: there is no backup tree for a file
@@ -85,6 +96,19 @@ namespace UI
         }
 
         running = false; // + pressed -> exit the app
+    }
+
+    template <typename Screen> void UIManager::runHubScreen()
+    {
+        Screen screen;
+        while (appletMainLoop() && running && !screen.shouldExit())
+        {
+            padUpdate(&pad);
+            touch.update();
+            screen.update(pad, touch);
+            screen.draw(framebuffer);
+            framebuffer.flush();
+        }
     }
 
     void UIManager::handleBackupSelection(AccountUid userUid, u64 titleId, const std::string &titleName,

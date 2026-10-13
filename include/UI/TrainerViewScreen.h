@@ -55,9 +55,8 @@ namespace UI
             Storage,     // HOME-style dual-pane: save boxes (left) <-> bank (right)
             MysteryGift, // offline mystery gift & event gallery injector
             Trainer,     // trainer info card (reached from the HOME main menu)
-            Settings,    // settings screen (auto-backup + theme)
             LivingDex,   // 1,025-species Living Dex / Collection Tracker
-            Pokepark     // Poképark Living Habitat
+            Pokepark     // choosing who from this game lives in the (shared) Poképark
         };
 
         // Cursor modes for the Storage view (cycled with Y). Colors: red / blue / green -- the same
@@ -181,7 +180,8 @@ namespace UI
         int selectedItemIndex = 0;     // Selected item/pokemon index in detail view (item for Items, slot for Boxes)
 
         // HOME main menu focus (shown when NOT entered). 0 Pokemon(Boxes), 1 Party, 2 Storage (pills); 3
-        // Items, 4 Events, 5 Trainer, 6 Settings (circular icons).
+        // Items, 4 Events, 5 Pokedex, 6 Pokepark residents, 7 Trainer (icon tiles). Settings and the
+        // Pokepark itself live on the top-level menu: they belong to no one game.
         int homeMenuIndex = 0;
 
         // WHERE EACH PANEL'S CURSOR WAS WHEN IT WAS LAST LEFT. Entering a panel used to reset its
@@ -200,8 +200,6 @@ namespace UI
         void restoreResume();
         void recordResume() const;
 
-        // Selected row in the Settings view (0-4); reached from the menu's Settings icon.
-        int settingsSelectedRow = 0;
 
         // Mystery Gift & Events injector view
         int eventTabMode = 0; // 0 = Distribution Gallery, 1 = Key Item Script Events, 2 = Save Wonder Cards / Inbox
@@ -241,22 +239,14 @@ namespace UI
         void refreshLivingDex();
         void handleLivingDexInput(u64 buttonsDown, const TouchInput &touch);
 
-        // Poképark Living Habitat view
-        int pokeparkSelectedResident = 0;
-        bool pokeparkCardActive = false;
-        bool pokeparkJournalActive = false;
-        int pokeparkJournalScroll = 0;
-        int pokeparkCardActionSelected = 0;
-        std::string pokeparkDialogueText;
-        float pokeparkDialogueTimer = 0.0f;
-        int pokeparkBerryFlavor = 2;        // the berry the card's Snack (and ZR) offers: 0 spicy .. 4 sour
-        bool pokeparkPhotoMode = false;     // UI hidden, the park held still
-        bool pokeparkPhotoCapture = false;  // this frame is the one being saved
-        bool pokeparkPhotoPending = false;  // saved last frame; waiting to hear whether it worked
-        std::string pokeparkPhotoName;
-        std::string pokeparkToast;          // "Photo saved" and the like
-        float pokeparkToastTimer = 0.0f;
-        void handlePokeparkInput(u64 buttonsDown, const TouchInput &touch);
+        // Poképark residents (the in-game Poképark tile): which of this save's Pokémon live in the
+        // shared park. Pane 0 is the park's residents, pane 1 this save's party (box -1) and boxes.
+        int pokeparkRosterPane = 1;
+        int pokeparkRosterRow = 0;
+        int pokeparkRosterBox = -1;
+        int pokeparkRosterSlot = 0;
+        float pokeparkRefillArmed = 0.0f; // X once arms "send party", X again within this window does it
+        void handlePokeparkRosterInput(u64 buttonsDown, const TouchInput &touch);
 
         // Offline Encounter Database & Route Lookup
         bool encounterLookupActive = false;

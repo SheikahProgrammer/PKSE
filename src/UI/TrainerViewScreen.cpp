@@ -94,34 +94,6 @@ namespace UI
     constexpr int CONTENT_PANEL_Y = LEFT_PANEL_Y;
     constexpr int CONTENT_PANEL_HEIGHT = 560;
 
-    // The Settings rows, by index. ONE list, read by both drawSettingsView (which draws the labels, values
-    // and badges) and the A-button handler in update() (which toggles them). Private copies of these
-    // numbers -- a chain of `index ==` tests in one, an if/else ladder in the other -- do not all move when
-    // a row is inserted, and the badges then light for their neighbour's setting. Add a row here and in
-    // drawSettingsView's four arrays together.
-    constexpr int SETTINGS_ROW_AUTO_BACKUP = 0;
-    constexpr int SETTINGS_ROW_THEME = 1;
-    constexpr int SETTINGS_ROW_SPRITE_STYLE = 2;
-    constexpr int SETTINGS_ROW_SD_OVERRIDE = 3;
-    constexpr int SETTINGS_ROW_ALLOW_ILLEGAL = 4;
-    constexpr int SETTINGS_ROW_AUTO_LEGALIZE = 5;
-    constexpr int SETTINGS_ROW_MOVE_WARNING = 6;
-    constexpr int SETTINGS_ROW_INJECT_TO_GAME = 7;
-    constexpr int SETTINGS_ROW_DEBUG_LOGGING = 8;
-    constexpr int SETTINGS_ROW_LANGUAGE = 9;
-    constexpr int SETTINGS_ROW_COUNT = 10; // rows DEFINED, which is what the row tables are sized by
-
-    // Rows actually SHOWN. The Language row is defined but not selectable yet (see
-    // Names::DISPLAY_LANGUAGE_SELECTABLE), and a row that does nothing does not belong on screen at
-    // all -- a greyed-out control still reads as something the user ought to be able to reach. It is
-    // trimmed off the END of the table, which is why the count is the whole mechanism and there is
-    // no gap to skip over in the drawing loop, the touch targets or the Up/Down wrap.
-    constexpr int SETTINGS_ROW_VISIBLE_COUNT =
-        Names::DISPLAY_LANGUAGE_SELECTABLE ? SETTINGS_ROW_COUNT : SETTINGS_ROW_LANGUAGE;
-    static_assert(SETTINGS_ROW_LANGUAGE == SETTINGS_ROW_COUNT - 1,
-                  "Hiding the Language row works by trimming the LAST row -- a row added after it "
-                  "would be hidden instead. Move Language back to the end, or hide it by index.");
-
     // Creator: build a valid, game-accepted default Pokemon in the current save's format. Species-
     // correct ability / gender / friendship come from the personal table; the user refines the rest
     // in the details editor. See scratchpad/creator_plan.md.
@@ -605,115 +577,6 @@ namespace UI
     }
 
     // Settings view (the toggle rows), reached from the HOME menu's Settings icon.
-    static void drawSettingsView(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer, int settingsViewX,
-                                 int settingsViewY, int settingsViewWidth, int settingsViewHeight)
-    {
-        framebuffer.drawFilledRoundedRect(settingsViewX, settingsViewY, settingsViewWidth, settingsViewHeight, 16,
-                                          Colors::Panel);
-        framebuffer.drawRoundedRect(settingsViewX, settingsViewY, settingsViewWidth, settingsViewHeight, 16,
-                                    Colors::Border, 1);
-        constexpr int headerHeight = 46;
-        framebuffer.drawCardBand(settingsViewX, settingsViewY, settingsViewWidth, headerHeight);
-        framebuffer.drawText(settingsViewX + 22,
-                             settingsViewY + (headerHeight - framebuffer.lineHeight(TextStyle::Heading)) / 2,
-                             "Settings", Colors::Text, TextStyle::Heading);
-
-        screen.touchButtons.clear();
-        // Every row DEFINED, including the Language row the loop below stops short of. Sizing the
-        // tables by the defined count rather than the visible one is what keeps every row's label,
-        // value and badge on the same line of the same table whether it is on screen or not.
-        constexpr int rowCount = SETTINGS_ROW_COUNT;
-        // The injection row names its actual scope. It does NOT govern saving a cart-loaded session
-        // back to the cart -- that is always allowed. It only unlocks writing an OLDER BACKUP over
-        // the live save, which is the case that can roll a game backwards.
-        const char *labels[rowCount] = {
-            "Auto-Backup on Load",
-            "Theme",
-            "Sprite Style",
-            "SD Sprite Override",
-            "Allow Illegal Values",
-            "Auto-Legalize Unsupported Transfers",
-            "Bank Storage Move Warning",
-            "Allow Inject Backups to Game Save",
-            "Enable Debug Logging",
-            "Language"};
-
-        std::string spriteStyleStr = "Auto (Theme)";
-        if (g_spriteStyle == SpriteStyle::PixelArt)
-            spriteStyleStr = "Retro DS (Pixel)";
-        else if (g_spriteStyle == SpriteStyle::ModernHD)
-            spriteStyleStr = "Modern (3D HOME)";
-        else if (g_spriteStyle == SpriteStyle::Hybrid)
-            spriteStyleStr = "Hybrid (Box/Detail)";
-
-        std::string values[rowCount] = {
-            g_autoBackupEnabled ? "On" : "Off",
-            (g_themeMode == ThemeMode::Dark) ? "Dark" : (g_themeMode == ThemeMode::Light ? "Light" : "PKForge"),
-            spriteStyleStr,
-            g_sdSpriteOverride ? "On" : "Off",
-            g_allowIllegalEdits ? "On" : "Off",
-            g_autoLegalizeTransfers ? "On" : "Off",
-            g_moveWarn ? "On" : "Off",
-            g_injectToGameSave ? "On" : "Off",
-            g_debugLogging ? "On" : "Off",
-            Names::nameLanguageLabel(Names::displayLanguageIndex()),
-        };
-        // Whether each row reads "On" (so its pill lights up), and which of those are the two that can
-        // damage real data. Both are columns of the SAME table as labels and values. A separate chain of
-        // `index ==` tests is a second, independent list of row numbers: inserting a row moves the labels
-        // and values and leaves the chain where it is, so from that row down every badge lights for its
-        // NEIGHBOUR's setting. A row's label, value and colour travel together.
-        const bool rowIsOn[rowCount] = {
-            g_autoBackupEnabled,
-            false, // Theme names its mode (Dark/Light) rather than toggling, so it never lights up
-            false, // Sprite Style names its mode
-            g_sdSpriteOverride,
-            g_allowIllegalEdits,
-            g_autoLegalizeTransfers,
-            g_moveWarn,
-            g_injectToGameSave,
-            g_debugLogging,
-            false, // Language: never lights up, and is not drawn at all -- SETTINGS_ROW_VISIBLE_COUNT
-        };
-        // Amber "On" for the benign toggles; RED for the two that can damage real data -- the
-        // illegal-values override and game-save injection. Colour carries the risk, not just text.
-        const bool rowIsDestructive[rowCount] = {false, false, false, false, true, false, false, true, false, false};
-        // The panel is a fixed height, so the rows have to fit inside it -- there is no scrolling
-        // here. The assert is the point: all rows fit neatly within CONTENT_PANEL_HEIGHT.
-        constexpr int rowW = 720, rowH = 43, rowGap = 5, rowsTop = 14, footerH = 18;
-        static_assert(headerHeight + rowsTop + rowCount * (rowH + rowGap) + footerH <= CONTENT_PANEL_HEIGHT,
-                      "Settings rows no longer fit the content panel -- shrink the rows or add scrolling");
-        const int rowX = settingsViewX + (settingsViewWidth - rowW) / 2;
-        int rectY = settingsViewY + headerHeight + rowsTop;
-        for (int index = 0; index < SETTINGS_ROW_VISIBLE_COUNT; ++index)
-        {
-            const bool selectedIndex = (screen.settingsSelectedRow == index);
-            framebuffer.drawSoftShadow(rowX, rectY, rowW, rowH, 12);
-            framebuffer.drawFilledRoundedRect(rowX, rectY, rowW, rowH, 12,
-                                              selectedIndex ? Colors::Selected : Colors::PanelAlt);
-            if (selectedIndex)
-                framebuffer.drawRoundedRect(rowX, rectY, rowW, rowH, 12, Colors::Accent, 2);
-            framebuffer.drawText(rowX + 24, rectY + (rowH - framebuffer.lineHeight(TextStyle::Body)) / 2, labels[index],
-                                 Colors::Text, TextStyle::Body);
-            int valueWidth, vh;
-            framebuffer.measureText(values[index], valueWidth, vh, TextStyle::Body);
-            const int pillW = valueWidth + 36, pillH = 32;
-            const int panelX = rowX + rowW - pillW - 20, py = rectY + (rowH - pillH) / 2;
-            Color pillFill = Colors::Background, pillText = Colors::Text;
-            if (rowIsOn[index])
-            {
-                pillFill = rowIsDestructive[index] ? Colors::Danger : Colors::Primary;
-                pillText = rowIsDestructive[index] ? Colors::White : Colors::PrimaryText;
-            }
-            framebuffer.drawPill(panelX, py, pillW, pillH, pillFill);
-            framebuffer.drawText(panelX + (pillW - valueWidth) / 2, py + (pillH - vh) / 2, values[index], pillText,
-                                 TextStyle::Body);
-            screen.touchButtons.push_back({index, rowX, rectY, rowW, rowH});
-            rectY += rowH + rowGap;
-        }
-        framebuffer.drawText(rowX, rectY + 6, "A: toggle     B: back", Colors::TextDim, TextStyle::Caption);
-    }
-
     void TrainerViewScreen::editTrainerTID()
     {
         const Utils::NumberResult promptResult =
@@ -3059,206 +2922,134 @@ namespace UI
         }
     }
 
-    void TrainerViewScreen::handlePokeparkInput(u64 buttonsDown, const TouchInput &touch)
+    void TrainerViewScreen::handlePokeparkRosterInput(u64 buttonsDown, const TouchInput &touch)
     {
         auto &mgr = UI::PokeparkManager::instance();
-        auto visibleIndices = mgr.getVisibleResidentIndices(mgr.getCurrentHabitat());
-        int touchedId = touchedButtonId(touch);
-        const bool haveSelection = !visibleIndices.empty() && pokeparkSelectedResident >= 0 &&
-                                   pokeparkSelectedResident < static_cast<int>(visibleIndices.size());
-        const int selectedIndex = haveSelection ? visibleIndices[pokeparkSelectedResident] : -1;
+        const int touchedId = touchedButtonId(touch);
+        const int boxCount = static_cast<int>(trainer.boxes.size());
+        const int slots = pokeparkRosterBox < 0 ? 6 : static_cast<int>(trainer.getSlotsPerBox());
+        const int cols = pokeparkRosterBox < 0 ? 3 : boxGridColumns(slots);
+        const int maxRow = static_cast<int>(UI::PokeparkManager::MAX_RESIDENTS) - 1;
+        const std::string game = resumeKey() + "#";
 
-        // Photo mode: the UI is hidden and the park holds still; A saves exactly what is on screen.
-        if (pokeparkPhotoMode)
-        {
-            if ((buttonsDown & HidNpadButton_A) && !pokeparkPhotoCapture && !pokeparkPhotoPending)
-            {
-                mkdir("sdmc:/PKSE", 0777);
-                mkdir("sdmc:/PKSE/photos", 0777);
-                char name[64];
-                const std::time_t now = std::time(nullptr);
-                std::strftime(name, sizeof(name), "park_%Y%m%d_%H%M%S.bmp", std::localtime(&now));
-                pokeparkPhotoName = name;
-                pokeparkPhotoCapture = true;
-            }
-            if (buttonsDown & (HidNpadButton_B | HidNpadButton_Minus))
-                pokeparkPhotoMode = false;
-            return;
-        }
-
-        // 1. Dialogue overlay active
-        if (!pokeparkDialogueText.empty())
-        {
-            if ((buttonsDown & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_X | HidNpadButton_Y)) || touchedId == 350)
-            {
-                pokeparkDialogueText.clear();
-                pokeparkDialogueTimer = 0.0f;
-            }
-            return;
-        }
-
-        // 2. Journal
-        if (pokeparkJournalActive)
-        {
-            if (buttonsDown & (HidNpadButton_B | HidNpadButton_Y))
-            {
-                pokeparkJournalActive = false;
+        auto candidate = [&](int box, int slot) -> const Pokemon::Pokemon * {
+            if (box < 0)
+                return slot >= 0 && slot < static_cast<int>(trainer.party.size()) ? trainer.party[slot].get() : nullptr;
+            if (box >= boxCount || slot < 0 || slot >= static_cast<int>(trainer.getSlotsPerBox()))
+                return nullptr;
+            return trainer.boxes[box][slot].get();
+        };
+        auto idOf = [&](int box, int slot) {
+            return game + (box < 0 ? "party:" + std::to_string(slot) : "box:" + std::to_string(box) + ":" + std::to_string(slot));
+        };
+        auto sourceOf = [&](int box, int slot) {
+            return titleName + "  ·  " +
+                   (box < 0 ? "Party " + std::to_string(slot + 1)
+                            : "Box " + std::to_string(box + 1) + ", slot " + std::to_string(slot + 1));
+        };
+        // Sends a Pokemon over, or brings it back if it already lives there.
+        auto toggle = [&](int box, int slot) {
+            const Pokemon::Pokemon *mon = candidate(box, slot);
+            if (!mon || mon->speciesID() == 0 || mon->isEgg())
                 return;
-            }
-            const int maxScroll = std::max(0, static_cast<int>(mgr.getJournal().size()) - 1);
-            if (buttonsDown & HidNpadButton_Up)
-                pokeparkJournalScroll = std::max(0, pokeparkJournalScroll - 1);
-            if (buttonsDown & HidNpadButton_Down)
-                pokeparkJournalScroll = std::min(maxScroll, pokeparkJournalScroll + 1);
-            if (buttonsDown & HidNpadButton_Left)
-                pokeparkJournalScroll = std::max(0, pokeparkJournalScroll - 5);
-            if (buttonsDown & HidNpadButton_Right)
-                pokeparkJournalScroll = std::min(maxScroll, pokeparkJournalScroll + 5);
-            return;
-        }
-
-        // 3. Resident profile card: Talk / Play / Snack / Relax / Call, and the berry for Snack.
-        if (pokeparkCardActive)
-        {
-            if (buttonsDown & HidNpadButton_B)
+            const std::string id = idOf(box, slot);
+            const std::string name = mon->nickname().empty() ? std::string(mon->species()) : Utils::utf16ToUtf8(mon->nickname());
+            if (mgr.hasResident(id))
             {
-                pokeparkCardActive = false;
-                return;
+                mgr.removeResidentById(id);
+                postStatus(name + " came home from the Poképark.", 150);
             }
-            int actionTrigger = -1;
-            if (buttonsDown & HidNpadButton_Left)
-                pokeparkCardActionSelected = (pokeparkCardActionSelected - 1 + 5) % 5;
-            if (buttonsDown & HidNpadButton_Right)
-                pokeparkCardActionSelected = (pokeparkCardActionSelected + 1) % 5;
-            if (buttonsDown & HidNpadButton_Up)
-                pokeparkBerryFlavor = (pokeparkBerryFlavor + 4) % 5;
-            if (buttonsDown & HidNpadButton_Down)
-                pokeparkBerryFlavor = (pokeparkBerryFlavor + 1) % 5;
-            if (buttonsDown & HidNpadButton_A)
-                actionTrigger = pokeparkCardActionSelected;
-            if (buttonsDown & HidNpadButton_X)
-                actionTrigger = 1;
-            if (buttonsDown & HidNpadButton_Y)
-                actionTrigger = 2;
-            if (buttonsDown & (HidNpadButton_R | HidNpadButton_ZR))
-                actionTrigger = 3;
-            if (buttonsDown & HidNpadButton_ZL)
-                actionTrigger = 4;
-            if (touchedId >= 300 && touchedId <= 304)
-                actionTrigger = touchedId - 300;
-
-            if (actionTrigger >= 0 && selectedIndex >= 0)
-            {
-                pokeparkCardActionSelected = actionTrigger;
-                switch (actionTrigger)
-                {
-                case 0: pokeparkDialogueText = mgr.interact(selectedIndex, "talk"); break;
-                case 1: pokeparkDialogueText = mgr.interact(selectedIndex, "play"); break;
-                case 2:
-                    pokeparkDialogueText =
-                        mgr.feedBerry(selectedIndex, static_cast<UI::ParkFlavor>(std::clamp(pokeparkBerryFlavor, 0, 4)));
-                    break;
-                case 3: pokeparkDialogueText = mgr.interact(selectedIndex, "relax"); break;
-                case 4:
-                    pokeparkDialogueText = mgr.callResident(selectedIndex);
-                    pokeparkCardActive = false; // watch it come over
-                    break;
-                }
-                pokeparkDialogueTimer = 5.0f;
-            }
-            return;
-        }
-
-        // 4. The habitat.
-        if (touchedId >= 200 && touchedId < 250)
-        {
-            const int vi = touchedId - 200;
-            if (vi >= 0 && vi < static_cast<int>(visibleIndices.size()))
-            {
-                if (pokeparkSelectedResident == vi)
-                {
-                    pokeparkCardActive = true;
-                    pokeparkCardActionSelected = 0;
-                }
-                else
-                    pokeparkSelectedResident = vi;
-            }
-            return;
-        }
-        if (touchedId == 270)
-        {
-            // Open ground: throw a ball there (scene coordinates are the panel's).
-            mgr.throwToy(UI::ParkToyKind::Ball, static_cast<float>(touch.x() - 32), static_cast<float>(touch.y() - 96));
-            return;
-        }
-        if (touchedId == 250 || (buttonsDown & HidNpadButton_L))
-        {
-            mgr.cycleHabitat(-1);
-            pokeparkSelectedResident = 0;
-            return;
-        }
-        if (touchedId == 251 || (buttonsDown & HidNpadButton_R))
-        {
-            mgr.cycleHabitat(1);
-            pokeparkSelectedResident = 0;
-            return;
-        }
-        if (touchedId == 260 || (buttonsDown & HidNpadButton_Y))
-        {
-            pokeparkJournalActive = true;
-            pokeparkJournalScroll = 0;
-            return;
-        }
-        if (buttonsDown & HidNpadButton_Minus)
-        {
-            pokeparkPhotoMode = true;
-            return;
-        }
-        if (!visibleIndices.empty())
-        {
-            if (buttonsDown & HidNpadButton_Left)
-                pokeparkSelectedResident = (pokeparkSelectedResident - 1 + static_cast<int>(visibleIndices.size())) %
-                                           static_cast<int>(visibleIndices.size());
-            if (buttonsDown & HidNpadButton_Right)
-                pokeparkSelectedResident = (pokeparkSelectedResident + 1) % static_cast<int>(visibleIndices.size());
-        }
-        if (selectedIndex >= 0 && (buttonsDown & (HidNpadButton_ZL | HidNpadButton_ZR)))
-        {
-            // Throw near the selected resident, a little in front of it.
-            const auto &res = mgr.getResidents()[selectedIndex];
-            const float x = res.x + (res.facingLeft ? -1.0f : 1.0f) * 140.0f, y = res.y + 20.0f;
-            if (buttonsDown & HidNpadButton_ZL)
-                mgr.throwToy(UI::ParkToyKind::Ball, x, y);
+            else if (mgr.addResident(id, sourceOf(box, slot), *mon, trainer))
+                postStatus(name + " moved into the Poképark!", 150);
             else
-                mgr.throwToy(UI::ParkToyKind::Berry, x, y, static_cast<UI::ParkFlavor>(std::clamp(pokeparkBerryFlavor, 0, 4)));
+                postStatus("The Poképark is full -- bring someone home first.", 180);
+        };
+
+        if (buttonsDown & HidNpadButton_B)
+        {
+            detailViewActive = false;
             return;
         }
-        if (selectedIndex >= 0 && (buttonsDown & HidNpadButton_Up))
+        // Shoulders page the save: the party, then each box.
+        if (touchedId == 440 || (buttonsDown & HidNpadButton_L))
         {
-            pokeparkDialogueText = mgr.callResident(selectedIndex);
-            return;
+            pokeparkRosterBox = pokeparkRosterBox <= -1 ? boxCount - 1 : pokeparkRosterBox - 1;
+            pokeparkRosterSlot = 0;
+        }
+        if (touchedId == 441 || (buttonsDown & HidNpadButton_R))
+        {
+            pokeparkRosterBox = pokeparkRosterBox >= boxCount - 1 ? -1 : pokeparkRosterBox + 1;
+            pokeparkRosterSlot = 0;
+        }
+        if (touchedId >= 400 && touchedId <= 400 + maxRow)
+        {
+            pokeparkRosterPane = 0;
+            pokeparkRosterRow = touchedId - 400;
+            buttonsDown |= HidNpadButton_A;
+        }
+        if (touchedId >= 450 && touchedId < 450 + slots)
+        {
+            pokeparkRosterPane = 1;
+            pokeparkRosterSlot = touchedId - 450;
+            buttonsDown |= HidNpadButton_A;
         }
 
-        if (buttonsDown & HidNpadButton_A)
+        if (pokeparkRosterPane == 0)
         {
-            if (selectedIndex >= 0)
+            if (buttonsDown & HidNpadButton_Up)
+                pokeparkRosterRow = std::max(0, pokeparkRosterRow - 1);
+            if (buttonsDown & HidNpadButton_Down)
+                pokeparkRosterRow = std::min(maxRow, pokeparkRosterRow + 1);
+            if (buttonsDown & HidNpadButton_Right)
+                pokeparkRosterPane = 1;
+            if ((buttonsDown & HidNpadButton_A) && pokeparkRosterRow < static_cast<int>(mgr.getResidents().size()))
             {
-                pokeparkCardActive = true;
-                pokeparkCardActionSelected = 0;
+                // Any resident can go home from here, whichever game it came from.
+                const std::string name = mgr.getResidents()[pokeparkRosterRow].name;
+                mgr.removeResident(pokeparkRosterRow);
+                postStatus(name + " left the Poképark.", 150);
             }
         }
-        else if (buttonsDown & HidNpadButton_X)
+        else
         {
-            if (selectedIndex >= 0)
+            const int col = pokeparkRosterSlot % cols;
+            if (buttonsDown & HidNpadButton_Left)
             {
-                pokeparkDialogueText = mgr.interact(selectedIndex, "talk");
-                pokeparkDialogueTimer = 5.0f;
+                if (col == 0)
+                    pokeparkRosterPane = 0;
+                else
+                    --pokeparkRosterSlot;
             }
+            if ((buttonsDown & HidNpadButton_Right) && col < cols - 1 && pokeparkRosterSlot + 1 < slots)
+                ++pokeparkRosterSlot;
+            if ((buttonsDown & HidNpadButton_Up) && pokeparkRosterSlot - cols >= 0)
+                pokeparkRosterSlot -= cols;
+            if ((buttonsDown & HidNpadButton_Down) && pokeparkRosterSlot + cols < slots)
+                pokeparkRosterSlot += cols;
+            if (buttonsDown & HidNpadButton_A)
+                toggle(pokeparkRosterBox, pokeparkRosterSlot);
         }
-        else if (buttonsDown & HidNpadButton_B)
+
+        // X twice: send the whole party.
+        if (buttonsDown & HidNpadButton_X)
         {
-            mgr.saveState(); // needs and bonds as they are right now
-            detailViewActive = false;
+            if (pokeparkRefillArmed > 0.0f)
+            {
+                int sent = 0;
+                for (int slot = 0; slot < static_cast<int>(trainer.party.size()); ++slot)
+                {
+                    const Pokemon::Pokemon *mon = trainer.party[slot].get();
+                    if (mon && mon->speciesID() != 0 && !mon->isEgg() && !mgr.hasResident(idOf(-1, slot)) &&
+                        mgr.addResident(idOf(-1, slot), sourceOf(-1, slot), *mon, trainer))
+                        ++sent;
+                }
+                postStatus(sent > 0 ? std::to_string(sent) + " party Pokémon moved into the Poképark!"
+                                    : "Nobody new to send (or the park is full).",
+                           180);
+                pokeparkRefillArmed = 0.0f;
+            }
+            else
+                pokeparkRefillArmed = 2.5f;
         }
     }
 
@@ -7776,123 +7567,7 @@ namespace UI
 
             if (selectedMode == ViewMode::Pokepark)
             {
-                handlePokeparkInput(buttonsDown, touch);
-            }
-
-            // Settings view: Up/Down select a row, A toggles it. The row numbers are the shared
-            // SETTINGS_ROW_* constants at the top of this file, so this handler and
-            // drawSettingsView's labels/values/badges cannot name different rows.
-            if (selectedMode == ViewMode::Settings)
-            {
-                constexpr int settingsRowCount = SETTINGS_ROW_VISIBLE_COUNT;
-                if (buttonsDown & HidNpadButton_Up)
-                    settingsSelectedRow = (settingsSelectedRow - 1 + settingsRowCount) % settingsRowCount;
-                if (buttonsDown & HidNpadButton_Down)
-                    settingsSelectedRow = (settingsSelectedRow + 1) % settingsRowCount;
-                int statIndex = touchedButtonId(touch);
-                if (statIndex >= 0 && statIndex < settingsRowCount)
-                {
-                    settingsSelectedRow = statIndex;
-                    buttonsDown |= HidNpadButton_A;
-                }
-                if (buttonsDown & HidNpadButton_A)
-                {
-                    if (settingsSelectedRow == SETTINGS_ROW_AUTO_BACKUP)
-                        g_autoBackupEnabled = !g_autoBackupEnabled;
-                    else if (settingsSelectedRow == SETTINGS_ROW_THEME)
-                    {
-                        applyTheme(g_themeMode == ThemeMode::RetroDS ? ThemeMode::Dark : (g_themeMode == ThemeMode::Dark ? ThemeMode::Light : ThemeMode::RetroDS));
-                        if (g_spriteStyle == SpriteStyle::Auto)
-                            SpriteManager::clearCache();
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_SPRITE_STYLE)
-                    {
-                        if (g_spriteStyle == SpriteStyle::Auto)
-                            SpriteManager::setSpriteStyle(SpriteStyle::Hybrid);
-                        else if (g_spriteStyle == SpriteStyle::Hybrid)
-                            SpriteManager::setSpriteStyle(SpriteStyle::PixelArt);
-                        else if (g_spriteStyle == SpriteStyle::PixelArt)
-                            SpriteManager::setSpriteStyle(SpriteStyle::ModernHD);
-                        else
-                            SpriteManager::setSpriteStyle(SpriteStyle::Auto);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_SD_OVERRIDE)
-                    {
-                        SpriteManager::setSdOverride(!g_sdSpriteOverride);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_ALLOW_ILLEGAL)
-                        g_allowIllegalEdits = !g_allowIllegalEdits;
-                    else if (settingsSelectedRow == SETTINGS_ROW_AUTO_LEGALIZE)
-                    {
-                        // Rebuilding a pokemon the destination could never have produced REWRITES
-                        // its met data and can drop moves, so it is opt-in: a user who would rather
-                        // set those by hand gets an obvious placeholder instead. It never alters a
-                        // level, and never touches a transfer the games themselves support.
-                        g_autoLegalizeTransfers = !g_autoLegalizeTransfers;
-                        postStatus(g_autoLegalizeTransfers
-                                       ? "Transfers with no official route will be rebuilt as legal natives."
-                                       : "Transfers will be left as-is for you to correct by hand.",
-                                   300);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_MOVE_WARNING)
-                    {
-                        // One switch for EVERY bank transfer warning, in every generation -- the
-                        // Gen 3 down-convert and the Poke Transporter run out of Gen 1/2 as well as
-                        // the Let's Go AV/EV reset. It used to gate the Let's Go one alone and the
-                        // other two warned regardless, so a user who had turned warnings off was
-                        // still stopped on every FireRed drop.
-                        g_moveWarn = !g_moveWarn;
-                        postStatus(g_moveWarn
-                                       ? "Lossy bank transfers will ask before converting."
-                                       : "Lossy bank transfers will convert without asking.",
-                                   300);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_INJECT_TO_GAME)
-                    {
-                        // The master lock for writing into the real game save. Turning it ON only
-                        // makes the "Game save" destination available in the save dialog -- it never
-                        // makes a save destructive on its own, so no confirmation is needed here.
-                        g_injectToGameSave = !g_injectToGameSave;
-                        postStatus(g_injectToGameSave
-                                       ? "An older backup can now be written over your live game save."
-                                       : "Backups can no longer be written over your live game save.",
-                                   300);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_DEBUG_LOGGING)
-                    {
-                        // Off by default, so a normal run leaves nothing on the card. The status
-                        // names the path because the whole point of the toggle is handing that file
-                        // to someone else: turn it on, reproduce the problem, send the log.
-                        g_debugLogging = !g_debugLogging;
-                        postStatus(g_debugLogging
-                                       ? "Debug logging on. Logs are written to sdmc:/PKSE/logs."
-                                       : "Debug logging off. No new log files will be written.",
-                                   300);
-                    }
-                    else if (settingsSelectedRow == SETTINGS_ROW_LANGUAGE)
-                    {
-                        // UNREACHABLE while Names::DISPLAY_LANGUAGE_SELECTABLE is false: the row is
-                        // not drawn, so settingsSelectedRow cannot reach it. Kept, rather than
-                        // deleted, because it is the working feature and the constant is the only
-                        // thing switched off -- flipping it true restores this screen exactly.
-                        //
-                        // Which language every NAME table is read in -- species, moves, items,
-                        // abilities, natures, types, forms and locations. It does not touch stored
-                        // text: a Pokemon's nickname and its trainer's name are bytes in the save
-                        // and are shown as they were written, whatever this says.
-                        //
-                        // A plain cycle rather than a picker dialog: nine entries is shorter than
-                        // several lists that already use A-to-cycle here, and it keeps the whole
-                        // settings screen operable without opening anything.
-                        const size_t nextLanguage =
-                            (Names::displayLanguageIndex() + 1) % Names::LANGUAGE_COUNT;
-                        Names::setDisplayLanguage(nextLanguage);
-                        postStatus(std::string("Names now shown in ") +
-                                       Names::nameLanguageLabel(nextLanguage) + ".",
-                                   240);
-                    }
-                    Utils::saveSettings(); // persist the change to settings.cfg
-                }
+                handlePokeparkRosterInput(buttonsDown, touch);
             }
 
             return; // Don't process other inputs while in detail view
@@ -7933,9 +7608,9 @@ namespace UI
         if (homeMenuIndex >= 3)
         { // horizontal icon row (3 Items, 4 Events, 5 Pokédex, 6 Poképark, 7 Trainer, 8 Settings)
             if (buttonsDown & HidNpadButton_Left)
-                homeMenuIndex = (homeMenuIndex == 3) ? 8 : homeMenuIndex - 1;
+                homeMenuIndex = (homeMenuIndex == 3) ? 7 : homeMenuIndex - 1;
             if (buttonsDown & HidNpadButton_Right)
-                homeMenuIndex = (homeMenuIndex == 8) ? 3 : homeMenuIndex + 1;
+                homeMenuIndex = (homeMenuIndex == 7) ? 3 : homeMenuIndex + 1;
             buttonsDown &=
                 ~(HidNpadButton_Left | HidNpadButton_Right); // consume L/R (don't also scroll the box preview)
         }
@@ -7966,14 +7641,11 @@ namespace UI
         case 7:
             selectedMode = ViewMode::Trainer;
             break;
-        case 8:
-            selectedMode = ViewMode::Settings;
-            break;
         }
 
         // Touch: tapping a menu pill/icon (ids 100-108) focuses it and acts like A.
         int homeTap = touchedButtonId(touch);
-        if (homeTap >= 100 && homeTap <= 108)
+        if (homeTap >= 100 && homeTap <= 107)
         {
             homeMenuIndex = homeTap - 100;
             switch (homeMenuIndex)
@@ -8002,9 +7674,6 @@ namespace UI
                 break;
             case 7:
                 selectedMode = ViewMode::Trainer;
-                break;
-            case 8:
-                selectedMode = ViewMode::Settings;
                 break;
             }
             buttonsDown |= HidNpadButton_A;
@@ -8049,18 +7718,11 @@ namespace UI
                 detailViewActive = true;
                 refreshLivingDex();
                 break;
-            case 6: // Poképark Living Habitat
+            case 6: // Poképark residents: who from this game lives in the shared park
                 detailViewActive = true;
-                pokeparkSelectedResident = std::max(0, pokeparkSelectedResident); // clamped by the panel
-                pokeparkCardActive = false;
-                pokeparkJournalActive = false;
-                pokeparkDialogueText.clear();
-                pokeparkDialogueTimer = 0.0f;
+                pokeparkRefillArmed = 0.0f;
                 break;
             case 7: // Trainer info
-                detailViewActive = true;
-                break;
-            case 8: // Settings screen (auto-backup + theme)
                 detailViewActive = true;
                 break;
             }
@@ -8268,15 +7930,11 @@ namespace UI
             case ViewMode::Pokepark:
             {
                 PopIn pop(framebuffer, "drawPokepark");
-                Panels::drawPokepark(*this, framebuffer);
+                Panels::drawParkRoster(*this, framebuffer);
                 break;
             }
             case ViewMode::Trainer:
                 Panels::drawTrainerCardView(*this, framebuffer);
-                break;
-            case ViewMode::Settings:
-                drawSettingsView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth,
-                                 CONTENT_PANEL_HEIGHT);
                 break;
             }
         }
@@ -8296,10 +7954,6 @@ namespace UI
         else if (details.active)
         {
             instructions = "Up/Down: Select  |  A: Edit  |  Y: Change View  |  B: Close  |  X: Save";
-        }
-        else if (detailViewActive && selectedMode == ViewMode::Settings)
-        {
-            instructions = "Up/Down: Select  |  A: Toggle  |  B: Back";
         }
         else if (detailViewActive)
         {
@@ -8621,10 +8275,10 @@ namespace UI
         // Every value is clamped to what THIS save can hold: the file may predate an edit made in
         // the game itself (a box count, a smaller pouch), and a stale index must never point past
         // the end of anything.
-        homeMenuIndex = std::clamp(intOf(fields, "home", homeMenuIndex), 0, 8);
-        static constexpr ViewMode modeForMenu[9] = {ViewMode::Boxes,     ViewMode::Party,   ViewMode::Storage,
+        homeMenuIndex = std::clamp(intOf(fields, "home", homeMenuIndex), 0, 7);
+        static constexpr ViewMode modeForMenu[8] = {ViewMode::Boxes,     ViewMode::Party,       ViewMode::Storage,
                                                     ViewMode::Items,     ViewMode::MysteryGift, ViewMode::LivingDex,
-                                                    ViewMode::Pokepark,  ViewMode::Trainer, ViewMode::Settings};
+                                                    ViewMode::Pokepark,  ViewMode::Trainer};
         selectedMode = modeForMenu[homeMenuIndex];
 
         const int boxCount = static_cast<int>(trainer.getBoxCount());
@@ -8658,9 +8312,8 @@ namespace UI
         livingDexPage = std::max(0, intOf(fields, "dexPage", 0));     // clamped by refreshLivingDex()
         livingDexCursor = std::max(0, intOf(fields, "dexCursor", 0)); // ditto
 
-        pokeparkSelectedResident = std::max(0, intOf(fields, "park", 0)); // clamped by the panel
+        pokeparkRosterBox = std::clamp(intOf(fields, "parkBox", -1), -1, std::max(-1, boxCount - 1));
         trainerSelectedRow = std::clamp(intOf(fields, "trainerRow", 0), 0, 13);
-        settingsSelectedRow = std::clamp(intOf(fields, "settingsRow", 0), 0, SETTINGS_ROW_VISIBLE_COUNT - 1);
     }
 
     void TrainerViewScreen::recordResume() const
@@ -8695,9 +8348,8 @@ namespace UI
                                             {"dexShiny", n(livingDexShinyMode ? 1 : 0)},
                                             {"dexPage", n(livingDexPage)},
                                             {"dexCursor", n(livingDexCursor)},
-                                            {"park", n(pokeparkSelectedResident)},
+                                            {"parkBox", n(pokeparkRosterBox)},
                                             {"trainerRow", n(trainerSelectedRow)},
-                                            {"settingsRow", n(settingsSelectedRow)},
                                         });
     }
 }

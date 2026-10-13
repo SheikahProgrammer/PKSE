@@ -28,6 +28,15 @@ namespace UI
 
         bool hasSelectedTitle() const { return titleSelected; }
 
+        /// The top-level places that belong to no one game (PKForge's home cards).
+        enum class HubRequest
+        {
+            None,
+            Pokepark,
+            Settings
+        };
+        HubRequest hubRequest() const { return hub; }
+
         // opening a loose save file (Gen 1 and, in time, every pre-Switch generation)
         // A Game Boy .sav has no title id and belongs to no Switch user, so it cannot appear in
         // the grid above -- the grid is built by enumerating SAVE DATA for an account. Y opens a
@@ -135,6 +144,12 @@ namespace UI
         // still while the cursor moves within it instead of re-centring (which reads as paging).
         int scrollRow = 0;
         void scrollSelectionIntoView();
+
+        // PKForge shelf focus: 0 the trainer tabs, 1 the game shelf, 2 the cards under it.
+        int focusZone = 1;
+        int cardIndex = 0; // 0 Poképark, 1 Settings
+        HubRequest hub = HubRequest::None;
+        std::vector<HitRect> cardRects;
 
         // The PKForge look (HomePage's cartridge shelf): trainer tabs, one horizontal row of game
         // cartridges that glides to keep the chosen one centred, and a panel naming it in full.

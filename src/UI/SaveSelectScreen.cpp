@@ -13,6 +13,8 @@
 #include "UI/ScreenChrome.h"
 #include "UI/ListSearch.h"
 #include "UI/SystemIcons.h"
+#include "UI/SpriteManager.h"
+#include "UI/Pokepark.h"
 #include "UI/TouchInput.h"
 #include "Enums/GameVersion.h"
 #include "Utils/Logger.h"
@@ -67,6 +69,7 @@ namespace UI
     {
         loadUsers();
         loadTicoSaves();
+        PokeparkManager::instance().loadState(); // the Poképark card names how many live there
 
         const Utils::Resume::Fields fields = Utils::Resume::get(PICKER_RESUME_SECTION);
         const std::string wantUser = Utils::Resume::textOf(fields, "user");
@@ -452,6 +455,7 @@ namespace UI
                 if (touchX >= r.hitX && touchX < r.hitX + r.hitWidth && ty >= r.hitY && ty < r.hitY + r.hitHeight)
                 {
                     setUser(r.entryIndex);
+                    focusZone = 0;
                     handled = true;
                     break;
                 }
@@ -463,6 +467,7 @@ namespace UI
                     if (touchX >= r.hitX && touchX < r.hitX + r.hitWidth && ty >= r.hitY && ty < r.hitY + r.hitHeight)
                     {
                         titleIndex = r.entryIndex;      // draws selected this frame
+                        focusZone = 1;
                         armTap(HidNpadButton_A);        // ...and opens on the next
                         return;
                     }
@@ -470,15 +475,65 @@ namespace UI
             }
         }
 
-        // Switch users with the shoulder buttons (only when there's more than one). On the PKForge
-        // shelf the trainer tabs sit above the games, so Up/Down reach them too.
+        // The cards: tapped, or picked with A while focused; X / Minus reach them from any theme.
+        if (touch.justPressed())
+            for (const auto &r : cardRects)
+                if (touch.x() >= r.hitX && touch.x() < r.hitX + r.hitWidth && touch.y() >= r.hitY &&
+                    touch.y() < r.hitY + r.hitHeight)
+                {
+                    hub = r.entryIndex == 0 ? HubRequest::Pokepark : HubRequest::Settings;
+                    return;
+                }
+        if (buttonsDown & HidNpadButton_X)
+        {
+            hub = HubRequest::Settings;
+            return;
+        }
+        if (buttonsDown & HidNpadButton_Minus)
+        {
+            hub = HubRequest::Pokepark;
+            return;
+        }
+
+        // Switch users with the shoulder buttons (only when there's more than one).
         if (users.size() > 1)
         {
-            const bool shelf = isPkForgeTheme();
-            if ((buttonsDown & HidNpadButton_L) || (shelf && (buttonsDown & HidNpadButton_Up)))
+            if (buttonsDown & HidNpadButton_L)
                 setUser(userIndex - 1);
-            if ((buttonsDown & HidNpadButton_R) || (shelf && (buttonsDown & HidNpadButton_Down)))
+            if (buttonsDown & HidNpadButton_R)
                 setUser(userIndex + 1);
+        }
+
+        // The PKForge shelf has three rows of focus: trainers, games, cards. Up/Down move between
+        // them; Left/Right act on whichever row is focused.
+        if (isPkForgeTheme())
+        {
+            if ((buttonsDown & HidNpadButton_Up) && focusZone > 0)
+                focusZone = (focusZone == 2 || users.size() > 1) ? focusZone - 1 : focusZone;
+            else if ((buttonsDown & HidNpadButton_Down) && focusZone < 2)
+                ++focusZone;
+            buttonsDown &= ~(HidNpadButton_Up | HidNpadButton_Down);
+            if (focusZone == 0)
+            {
+                if (buttonsDown & HidNpadButton_Left)
+                    setUser(userIndex - 1);
+                if (buttonsDown & HidNpadButton_Right)
+                    setUser(userIndex + 1);
+                if (buttonsDown & HidNpadButton_A)
+                    focusZone = 1;
+                buttonsDown &= ~(HidNpadButton_Left | HidNpadButton_Right | HidNpadButton_A);
+            }
+            else if (focusZone == 2)
+            {
+                if (buttonsDown & (HidNpadButton_Left | HidNpadButton_Right))
+                    cardIndex = 1 - cardIndex;
+                if (buttonsDown & HidNpadButton_A)
+                {
+                    hub = cardIndex == 0 ? HubRequest::Pokepark : HubRequest::Settings;
+                    return;
+                }
+                buttonsDown &= ~(HidNpadButton_Left | HidNpadButton_Right | HidNpadButton_A);
+            }
         }
 
         // Title grid navigation. titleCount() already resolves the current user.
@@ -517,6 +572,7 @@ namespace UI
     {
         titleRects.clear();
         userRects.clear();
+        cardRects.clear();
 
         framebuffer.clear(Colors::Background);
         drawTitleBar(framebuffer, "Pokémon Save Editor", "v" + VERSION_STRING);
@@ -662,9 +718,9 @@ namespace UI
                        "Up/Down: Move  |  L/R: Page  |  A: Open  |  Y: Search  |  X: All Files  |  B: Up / Close");
         else if (users.size() > 1)
             drawNavBar(framebuffer,
-                       "A: Select  |  L/R: Switch User  |  Y: Open Save File  |  +: Exit");
+                       "A: Select  |  L/R: Switch User  |  Y: Open Save File  |  -: Poképark  |  X: Settings  |  +: Exit");
         else
-            drawNavBar(framebuffer, "A: Select  |  Y: Open Save File  |  +: Exit");
+            drawNavBar(framebuffer, "A: Select  |  Y: Open Save File  |  -: Poképark  |  X: Settings  |  +: Exit");
 
         // Drawn last so it sits above the grid.
         if (fileBrowser.active)
@@ -891,6 +947,8 @@ namespace UI
                                  fitWidth(framebuffer, user.name, tabW - avatar - 34, TextStyle::Body),
                                  current ? Pksm::Ink : Pksm::InkSoft);
             framebuffer.popTransform();
+            if (current && focusZone == 0)
+                framebuffer.pkSelection(tabX - 4, tabsY - 4, tabW + 8, tabH + 8);
             userRects.push_back({tabX, tabsY, tabW, tabH, index});
             tabX += tabW + 10;
         }
@@ -909,7 +967,7 @@ namespace UI
         }
 
         // -- The cartridge shelf. -----------------------------------------------------------------
-        constexpr int shelfY = gamesY + 44, tileW = 196, tileH = 236, tileGap = 16;
+        constexpr int shelfY = gamesY + 44, tileW = 196, tileH = 214, tileGap = 16;
         constexpr int shelfX = 16;
         const int shelfW = screenW - 32;
         if (count == 0)
@@ -940,7 +998,8 @@ namespace UI
                 if (tileX + tileW < shelfX - 20 || tileX > shelfX + shelfW + 20)
                     continue;
                 const TitleEntry &title = u->titles[index];
-                const bool selected = index == titleIndex;
+                const bool chosen = index == titleIndex;
+                const bool selected = chosen && focusZone == 1; // the shelf has focus
                 const int generation = titleGeneration(title);
 
                 const float pop = framebuffer.spring(("picker.tile." + std::to_string(index)).c_str(),
@@ -952,6 +1011,8 @@ namespace UI
                     framebuffer.pkSelectedButton(tileX, shelfY, tileW, tileH, 6);
                 else
                     framebuffer.pkPanel(tileX, shelfY, tileW, tileH);
+                if (chosen && !selected)
+                    framebuffer.drawRoundedRect(tileX, shelfY, tileW, tileH, 6, Pksm::LogoCyan, 2); // chosen, not focused
 
                 // The cartridge: era plastic, a dark contact strip, the label sticker with the art.
                 constexpr int cartW = 132, cartH = 146;
@@ -1016,10 +1077,9 @@ namespace UI
             // Four labelled fields in two columns, rather than one run-on line and a raw SD path: what
             // console, whose (or which emulator's) save it is, the file, and where it lives.
             const TitleEntry &title = u->titles[titleIndex];
-            const int infoY = shelfY + tileH + 18;
-            const int infoH = framebuffer.getHeight() - NAV_BAR_HEIGHT - 10 - infoY;
+            const int infoY = shelfY + tileH + 12, infoH = 104;
             framebuffer.pkPanel(16, infoY, screenW - 32, infoH);
-            framebuffer.pkHeaderStrip(26, infoY + 10, screenW - 52, 36,
+            framebuffer.pkHeaderStrip(26, infoY + 8, screenW - 52, 32,
                                       fitWidth(framebuffer, title.name, screenW - 100, TextStyle::Body),
                                       Pksm::HeaderBlue, false, TextStyle::Body);
 
@@ -1069,33 +1129,70 @@ namespace UI
                 {"Save", saveText},
                 {"Folder", folderText},
             };
-            const int columnW = (screenW - 32 - 40) / 2, labelW = 104;
-            const int fieldTop = infoY + 58, fieldPitch = (infoH - 58 - 8) / 2;
+            // Four fields in a row, label over value; the long two (file, folder) get the wider columns.
+            const int fieldsX = 30, fieldsW = screenW - 60, fieldTop = infoY + 46;
+            const int widths[4] = {fieldsW * 14 / 100, fieldsW * 20 / 100, fieldsW * 30 / 100, fieldsW * 36 / 100};
+            int fx = fieldsX;
             for (int index = 0; index < 4; ++index)
             {
-                // Console and Trainer on the left, the file and its folder (the long ones) on the right.
-                const int column = index < 2 ? 0 : 1, row = index % 2;
-                const int fx = 30 + column * (columnW + 20), fy = fieldTop + row * fieldPitch;
-                const int midY = fy + fieldPitch / 2 - 2;
-                framebuffer.drawText(fx, framebuffer.textYCenteredOn(midY, TextStyle::Caption), fields[index].label,
-                                     Pksm::InkSoft, TextStyle::Caption);
-                const int valueX = fx + (column == 0 ? labelW - 20 : labelW - 34);
-                const int valueW = columnW - (valueX - fx) - 6;
+                const int valueW = widths[index] - 18;
+                framebuffer.drawText(fx, fieldTop, fields[index].label, Pksm::InkSoft, TextStyle::Caption);
                 const std::string value = index == 3 ? fitMiddle(framebuffer, fields[index].value, valueW, TextStyle::Body)
                                                      : fitWidth(framebuffer, fields[index].value, valueW, TextStyle::Body);
-                framebuffer.drawText(valueX, framebuffer.textYCenteredOn(midY), value, Pksm::Ink);
+                framebuffer.drawText(fx, fieldTop + 22, value, Pksm::Ink);
+                if (index < 3)
+                    framebuffer.drawFilledRect(fx + widths[index] - 9, fieldTop + 2, 2, 44, Pksm::LogoGrid);
+                fx += widths[index];
             }
-            // Between the columns, the same rule the panels use for a divider.
-            framebuffer.drawFilledRect(30 + columnW + 9, fieldTop + 4, 2, infoH - 58 - 16, Pksm::LogoGrid);
+        }
+
+        // -- The places that belong to no one game (PKForge's home cards). ------------------------
+        {
+            constexpr int cardsY = HEADER_HEIGHT + 14 + 56 + 18 + 44 + 214 + 12 + 104 + 10;
+            const int cardsH = framebuffer.getHeight() - NAV_BAR_HEIGHT - 8 - cardsY;
+            const int cardW = (screenW - 32 - 12) / 2;
+            const size_t residents = PokeparkManager::instance().getResidents().size();
+            struct Card
+            {
+                const char *icon, *title;
+                std::string subtitle;
+            };
+            const Card cards[2] = {
+                {"park", "Poképark", residents == 0 ? std::string("A hangout for Pokémon from all your games")
+                                                     : std::to_string(residents) + (residents == 1 ? " resident" : " residents") +
+                                                           " from all your games"},
+                {"settings", "Settings", "Theme, text speed, sprites, backups"},
+            };
+            for (int index = 0; index < 2; ++index)
+            {
+                const int cx = 16 + index * (cardW + 12);
+                const bool focused = focusZone == 2 && cardIndex == index;
+                const float pop = framebuffer.spring(index == 0 ? "picker.card.0" : "picker.card.1", focused ? 1.03f : 1.0f,
+                                                     900.0f, focused ? 33.0f : 60.0f, 1.0f);
+                framebuffer.pushScale(cx + cardW / 2.0f, cardsY + cardsH / 2.0f, pop);
+                if (focused)
+                    framebuffer.pkSelectedButton(cx, cardsY, cardW, cardsH, 6);
+                else
+                    framebuffer.pkBlackButton(cx, cardsY, cardW, cardsH, 6);
+                if (Sprite *icon = SpriteManager::getUiIcon(cards[index].icon); icon && icon->data)
+                    framebuffer.drawSpriteFit(cx + 20, cardsY + (cardsH - 52) / 2, 52, 52, icon->width, icon->height,
+                                              icon->data, icon->channels);
+                framebuffer.drawText(cx + 90, cardsY + cardsH / 2 - 30, cards[index].title, Pksm::Ink, TextStyle::Heading);
+                framebuffer.drawText(cx + 90, cardsY + cardsH / 2 + 4,
+                                     fitWidth(framebuffer, cards[index].subtitle, cardW - 110, TextStyle::Caption),
+                                     focused ? Pksm::Ink : Pksm::InkSoft, TextStyle::Caption);
+                framebuffer.popTransform();
+                cardRects.push_back({cx, cardsY, cardW, cardsH, index});
+            }
         }
 
         if (fileBrowser.active)
             drawNavBar(framebuffer,
                        "Up/Down: Move  |  L/R: Page  |  A: Open  |  Y: Search  |  X: All Files  |  B: Up / Close");
         else if (users.size() > 1)
-            drawNavBar(framebuffer, "A: Open  |  L/R: Trainer  |  Y: Save File  |  +: Exit");
+            drawNavBar(framebuffer, "A: Open  |  L/R: Trainer  |  Up/Down: Row  |  Y: Save File  |  -: Poképark  |  X: Settings  |  +: Exit");
         else
-            drawNavBar(framebuffer, "A: Open  |  Y: Save File  |  +: Exit");
+            drawNavBar(framebuffer, "A: Open  |  Up/Down: Row  |  Y: Save File  |  -: Poképark  |  X: Settings  |  +: Exit");
 
         if (fileBrowser.active)
         {
@@ -1504,9 +1601,9 @@ namespace UI
         {
             if (ent0->d_name[0] == '.')
                 continue;
-            char path0[1024];
-            snprintf(path0, sizeof(path0), "%s/%s", basePath.c_str(), ent0->d_name);
-            DIR *d1 = opendir(path0);
+            // Built as strings: a fixed buffer could cut a long emulator path short.
+            const std::string path0 = basePath + "/" + ent0->d_name;
+            DIR *d1 = opendir(path0.c_str());
             if (!d1)
                 continue;
             struct dirent *ent1;
@@ -1514,9 +1611,8 @@ namespace UI
             {
                 if (ent1->d_name[0] == '.')
                     continue;
-                char titleDir[1024];
-                snprintf(titleDir, sizeof(titleDir), "%s/%s/title/00040000", path0, ent1->d_name);
-                DIR *dt = opendir(titleDir);
+                const std::string titleDir = path0 + "/" + ent1->d_name + "/title/00040000";
+                DIR *dt = opendir(titleDir.c_str());
                 if (!dt)
                     continue;
                 struct dirent *entT;
@@ -1525,8 +1621,8 @@ namespace UI
                     if (entT->d_name[0] == '.')
                         continue;
                     std::string tid = entT->d_name;
-                    char mainPath[1024];
-                    snprintf(mainPath, sizeof(mainPath), "%s/%s/data/00000001/main", titleDir, tid.c_str());
+                    const std::string mainPathText = titleDir + "/" + tid + "/data/00000001/main";
+                    const char *mainPath = mainPathText.c_str();
                     struct stat st;
                     if (stat(mainPath, &st) == 0 && S_ISREG(st.st_mode) && st.st_size >= 0x65600)
                     {

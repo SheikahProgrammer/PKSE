@@ -438,6 +438,44 @@ namespace UI
         saveState();
     }
 
+    bool PokeparkManager::hasResident(const std::string &id) const
+    {
+        return std::any_of(residents.begin(), residents.end(), [&](const ParkResident &r) { return r.id == id; });
+    }
+
+    bool PokeparkManager::addResident(const std::string &id, const std::string &source, const Pokemon::Pokemon &mon,
+                                      const Trainer::Trainer &trainer)
+    {
+        if (residents.size() >= MAX_RESIDENTS || hasResident(id) || mon.speciesID() == 0 || mon.isEgg())
+            return false;
+        ParkResident res = makeResident(id, source, mon, trainer);
+        // A newcomer arrives at the front of the scene and looks around.
+        res.x = PLAYER_X + static_cast<float>((rand() % 200) - 100);
+        res.y = PLAYER_Y - 20.0f;
+        if (!canStand(res, res.x, res.y))
+            pickSpot(res, res.x, res.y);
+        res.targetX = res.x;
+        res.targetY = res.y;
+        res.activityTimer = 1.0f;
+        res.emotion = ParkEmotion::Exclamation;
+        res.emotionTimer = 2.0f;
+        residents.push_back(res);
+        addJournal(ParkJournalEventKind::Activity, res.name + " moved into the park.",
+                   {static_cast<int>(residents.size()) - 1});
+        saveState();
+        return true;
+    }
+
+    void PokeparkManager::removeResidentById(const std::string &id)
+    {
+        for (size_t i = 0; i < residents.size(); ++i)
+            if (residents[i].id == id)
+            {
+                removeResident(static_cast<int>(i));
+                return;
+            }
+    }
+
     PokeparkManager &PokeparkManager::instance()
     {
         static PokeparkManager s_instance;
@@ -449,9 +487,9 @@ namespace UI
         activeTrainer = trainer;
         activeBank = bank;
 
+        // The park is shared by every game, and each game chooses who it sends: nobody moves in
+        // just because a save was opened.
         loadState();
-        if (residents.empty() && trainer)
-            autoFillRoster(trainer, bank);
 
         refreshClock();
         uint64_t now = static_cast<uint64_t>(std::time(nullptr));

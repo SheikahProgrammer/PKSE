@@ -11,6 +11,9 @@
 #include "UI/SpriteManager.h"
 #include "UI/Pokepark.h"
 #include "UI/Common.h"
+#include "Trainer/Trainer.h"
+#include "Pokemon/Pokemon.h"
+#include "Utils/StringHelpers.h"
 
 namespace UI
 {
@@ -496,7 +499,7 @@ namespace UI
             fb.drawGaugeBar(barX, y + 4, barW, 10, std::clamp(value / 100.0f, 0.0f, 1.0f), color, Colors::PanelAlt);
         }
 
-        static void drawProfileCard(TrainerViewScreen &screen, PKSEFramebuffer &fb, PokeparkManager &mgr, int residentIndex)
+        static void drawProfileCard(PokeparkView &screen, PKSEFramebuffer &fb, PokeparkManager &mgr, int residentIndex)
         {
             const auto &res = mgr.getResidents()[residentIndex];
             constexpr int cardW = 820, cardH = 500;
@@ -602,7 +605,7 @@ namespace UI
             }
         }
 
-        static void drawJournal(TrainerViewScreen &screen, PKSEFramebuffer &fb, PokeparkManager &mgr)
+        static void drawJournal(PokeparkView &screen, PKSEFramebuffer &fb, PokeparkManager &mgr)
         {
             constexpr int jW = 900, jH = 520;
             const int jX = PANEL_X + (PANEL_W - jW) / 2, jY = PANEL_Y + (PANEL_H - jH) / 2;
@@ -625,7 +628,8 @@ namespace UI
             const int count = static_cast<int>(journal.size());
             screen.pokeparkJournalScroll = std::clamp(screen.pokeparkJournalScroll, 0, std::max(0, count - 1));
             const int textX = jX + 150, textW = jX + jW - 30 - textX;
-            int y = jY + 58;
+            // Entries vary in height, so the ease works in an average row (the slide reads the same).
+            int y = jY + 58 + static_cast<int>(std::lround(easedListShift(fb, "park.journal", screen.pokeparkJournalScroll, 62)));
             const int bottom = jY + jH - 44;
             std::string lastDay;
             fb.setClipRect(jX, jY + 50, jW, bottom - jY - 50);
@@ -665,9 +669,150 @@ namespace UI
                         TextStyle::Caption);
         }
 
+        // ---- Roster picker ---------------------------------------------------------------------
+        // Who lives in the park: the residents on the left, the save's party and boxes on the right.
+
+        static const ::Pokemon::Pokemon *rosterCandidate(TrainerViewScreen &screen, int box, int slot)
+        {
+            if (box < 0)
+                return slot >= 0 && slot < static_cast<int>(screen.trainer.party.size()) ? screen.trainer.party[slot].get() : nullptr;
+            if (box >= static_cast<int>(screen.trainer.boxes.size()) || slot < 0 ||
+                slot >= static_cast<int>(screen.trainer.getSlotsPerBox()))
+                return nullptr;
+            return screen.trainer.boxes[box][slot].get();
+        }
+
+        // Residents come from every save, so an id carries the save it came from (resumeKey: the title
+        // and account, or a loose save's path) as well as where in it the Pokémon sits.
+        static std::string rosterId(TrainerViewScreen &screen, int box, int slot)
+        {
+            return screen.resumeKey() + "#" +
+                   (box < 0 ? "party:" + std::to_string(slot) : "box:" + std::to_string(box) + ":" + std::to_string(slot));
+        }
+
+        void drawParkRoster(TrainerViewScreen &screen, PKSEFramebuffer &fb)
+        {
+            PokeparkManager &mgr = PokeparkManager::instance();
+            screen.touchButtons.clear();
+            constexpr int wW = 1080, wH = 540;
+            const int wX = PANEL_X + (PANEL_W - wW) / 2, wY = PANEL_Y + (PANEL_H - wH) / 2;
+            fb.drawFilledRect(0, 0, fb.getWidth(), fb.getHeight(), Color(0x14, 0x12, 0x1D, 0xAA));
+            fb.drawSoftShadow(wX, wY, wW, wH, 16);
+            fb.drawFilledRoundedRect(wX, wY, wW, wH, 16, Colors::Panel);
+            fb.drawCardBand(wX, wY, wW, 46);
+            const auto &residents = mgr.getResidents();
+            fb.drawText(wX + 24, wY + 10,
+                        "Poképark Residents  ·  " + std::to_string(residents.size()) + " / " +
+                            std::to_string(PokeparkManager::MAX_RESIDENTS) + "  ·  from every game",
+                        Colors::Text, TextStyle::Heading);
+
+            // Left: who lives here.
+            const int lX = wX + 18, lY = wY + 60, lW = 340, rowH = 34;
+            for (int i = 0; i < static_cast<int>(PokeparkManager::MAX_RESIDENTS); ++i)
+            {
+                const int ry = lY + i * rowH;
+                const bool focus = screen.pokeparkRosterPane == 0 && screen.pokeparkRosterRow == i;
+                if (i >= static_cast<int>(residents.size()))
+                {
+                    fb.drawRoundedRect(lX, ry, lW, rowH - 4, 6, Colors::Border, 1);
+                    fb.drawText(lX + 44, fb.textYCenteredOn(ry + (rowH - 4) / 2, TextStyle::Caption), "Empty spot",
+                                Colors::TextDim, TextStyle::Caption);
+                    if (focus)
+                        fb.pkSelection(lX, ry, lW, rowH - 4);
+                    continue;
+                }
+                const auto &r = residents[i];
+                if (focus)
+                    fb.pkSelectedButton(lX, ry, lW, rowH - 4, 4);
+                else
+                    fb.drawFilledRoundedRect(lX, ry, lW, rowH - 4, 6, Colors::PanelAlt);
+                if (Sprite *icon = SpriteManager::getIconSprite(r.species, r.form, r.shiny); icon && icon->data)
+                    fb.drawSpriteFit(lX + 4, ry - 2, 38, 32, icon->width, icon->height, icon->data, icon->channels);
+                fb.drawText(lX + 46, fb.textYCenteredOn(ry + (rowH - 4) / 2), r.name, Colors::Text);
+                const char *trait = PokeparkManager::getPersonalityName(r.personality);
+                int tw, th;
+                fb.measureText(trait, tw, th, TextStyle::Caption);
+                fb.drawText(lX + lW - tw - 12, fb.textYCenteredOn(ry + (rowH - 4) / 2, TextStyle::Caption), trait,
+                            Colors::TextDim, TextStyle::Caption);
+                screen.touchButtons.push_back({400 + i, lX, ry, lW, rowH - 4});
+            }
+
+            // Right: the save, a box at a time (the party first).
+            const int gX = wX + 390, gY = wY + 60, gW = wW - 390 - 18;
+            const int box = screen.pokeparkRosterBox;
+            const std::string boxName = box < 0 ? std::string("Party") : "Box " + std::to_string(box + 1);
+            fb.pkBoxNameBar(gX, gY, gW, 40, boxName, true, true);
+            screen.touchButtons.push_back({440, gX, gY, 60, 40});
+            screen.touchButtons.push_back({441, gX + gW - 60, gY, 60, 40});
+            const int slots = box < 0 ? 6 : static_cast<int>(screen.trainer.getSlotsPerBox());
+            const int cols = box < 0 ? 3 : boxGridColumns(slots);
+            const int rows = (slots + cols - 1) / cols;
+            const int cellW = 108, cellH = 74;
+            const int gridX = gX + (gW - cols * cellW) / 2, gridY = gY + 52;
+            fb.pkWallpaper(gX, gY + 44, gW, rows * cellH + 16, Pksm::wallpaperAt(std::max(0, box)));
+            int focusX = -1, focusY = -1;
+            for (int slot = 0; slot < slots; ++slot)
+            {
+                const int cx = gridX + (slot % cols) * cellW, cy = gridY + (slot / cols) * cellH;
+                const ::Pokemon::Pokemon *mon = rosterCandidate(screen, box, slot);
+                const bool present = mon && mon->speciesID() != 0 && !mon->isEgg();
+                if (present)
+                {
+                    const bool shiny = mon->isShiny(mon->id32(), mon->species());
+                    if (Sprite *icon = SpriteManager::getIconSprite(mon->speciesID(), mon->form(), shiny); icon && icon->data)
+                        fb.drawSpriteFit(cx + (cellW - 68) / 2, cy + (cellH - 56) / 2, 68, 56, icon->width, icon->height,
+                                         icon->data, icon->channels, mgr.hasResident(rosterId(screen, box, slot)) ? 255 : 200);
+                    if (mgr.hasResident(rosterId(screen, box, slot)))
+                    {
+                        // Lives in the park: a leaf badge.
+                        fb.drawFilledCircle(cx + cellW - 22, cy + 14, 10, Color(70, 170, 90));
+                        fb.drawText(cx + cellW - 27, fb.textYCenteredOn(cy + 14, TextStyle::Caption), "P", Color(255, 255, 255),
+                                    TextStyle::Caption);
+                    }
+                }
+                else
+                    fb.pkEmptySlot(cx + (cellW - 56) / 2, cy + (cellH - 56) / 2, 56, 56, Pksm::wallpaperAt(std::max(0, box)));
+                if (screen.pokeparkRosterPane == 1 && screen.pokeparkRosterSlot == slot)
+                {
+                    focusX = cx + cellW / 2;
+                    focusY = cy + cellH / 2;
+                }
+                screen.touchButtons.push_back({450 + slot, cx, cy, cellW, cellH});
+            }
+            if (focusX >= 0)
+            {
+                float gx, gy;
+                fb.glide("park.roster.cursor", static_cast<float>(focusX), static_cast<float>(focusY), gx, gy);
+                fb.pkSelection(static_cast<int>(gx) - 34, static_cast<int>(gy) - 32, 68, 64);
+            }
+
+            // What A will do.
+            std::string info;
+            if (screen.pokeparkRosterPane == 0)
+                info = screen.pokeparkRosterRow < static_cast<int>(residents.size())
+                           ? "A: " + residents[screen.pokeparkRosterRow].name + " leaves the park"
+                           : "Pick a Pokémon on the right to fill this spot";
+            else if (const ::Pokemon::Pokemon *mon = rosterCandidate(screen, box, screen.pokeparkRosterSlot);
+                     mon && mon->speciesID() != 0 && !mon->isEgg())
+            {
+                const std::string name =
+                    mon->nickname().empty() ? std::string(mon->species()) : Utils::utf16ToUtf8(mon->nickname());
+                info = mgr.hasResident(rosterId(screen, box, screen.pokeparkRosterSlot)) ? "A: " + name + " leaves the park"
+                       : residents.size() >= PokeparkManager::MAX_RESIDENTS ? name + ": the park is full"
+                                                                            : "A: " + name + " moves into the park";
+            }
+            fb.drawText(gX, wY + wH - 92, info, Colors::Text, TextStyle::Body);
+            if (screen.pokeparkRefillArmed > 0.0f)
+                screen.pokeparkRefillArmed -= fb.getDeltaSeconds();
+            drawPopupHints(fb, wX + 16, wY + wH - 52, wW - 32, 40,
+                           screen.pokeparkRefillArmed > 0.0f
+                               ? "X: Press again to send your whole party  |  B: Cancel"
+                               : "D-Pad: Move  |  L/R: Box  |  A: Send / Bring back  |  X: Send party  |  B: Done");
+        }
+
         // ---- The park --------------------------------------------------------------------------
 
-        void drawPokepark(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer)
+        void drawPokepark(PokeparkView &screen, PKSEFramebuffer &framebuffer)
         {
             screen.touchButtons.clear();
             PokeparkManager &mgr = PokeparkManager::instance();
@@ -736,6 +881,15 @@ namespace UI
             std::sort(actors.begin(), actors.end(), [](const Actor &a, const Actor &b) { return a.y < b.y; });
 
             drawToys(framebuffer, mgr.getToys(), clipTop, clipH);
+            if (mgr.getResidents().empty() && !photo)
+            {
+                const char *empty = "Nobody lives here yet. Open a game and pick Poképark to send Pokémon over.";
+                int ew, eh;
+                framebuffer.measureText(empty, ew, eh, TextStyle::Body);
+                framebuffer.drawFilledRoundedRect(PANEL_X + (PANEL_W - ew) / 2 - 20, PANEL_Y + 250, ew + 40, eh + 24, 12,
+                                                  Color(20, 25, 35, 200));
+                framebuffer.drawText(PANEL_X + (PANEL_W - ew) / 2, PANEL_Y + 262, empty, Color(255, 255, 255));
+            }
             for (const Actor &actor : actors)
             {
                 if (actor.index < 0)
@@ -873,7 +1027,8 @@ namespace UI
                 for (size_t i = 0; i < lines.size() && i < 4; ++i)
                     framebuffer.drawText(dX + 26, dY + 20 + static_cast<int>(i) * 28, lines[i], Colors::Text, TextStyle::Body);
                 framebuffer.endTyping();
-                framebuffer.drawText(dX + dW - 140, dY + dH - 28, "A: Continue", Colors::TextDim, TextStyle::Caption);
+                if (framebuffer.typingFinished())
+                    framebuffer.drawAdvanceArrow(dX + dW - 30, dY + dH - 14, Colors::Accent);
                 screen.touchButtons.insert(screen.touchButtons.begin(), {350, dX, dY, dW, dH});
             }
 
@@ -882,6 +1037,8 @@ namespace UI
                 PopIn pop(framebuffer, "pokeparkJournal");
                 drawJournal(screen, framebuffer, mgr);
             }
+
+
 
             if (screen.pokeparkToastTimer > 0.0f && !screen.pokeparkToast.empty())
             {

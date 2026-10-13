@@ -372,6 +372,13 @@ namespace UI
         void autoFillRoster(Trainer::Trainer *trainer, Trainer::Bank *bank);
         void removeResident(int residentIndex);
         void addResidentFromSave(int box, int slot, const Trainer::Trainer &trainer);
+        // The roster picker: who lives in the park. `id` is "party:N" or "box:B:S".
+        bool hasResident(const std::string &id) const;
+        /// Adds `mon` as a resident. False when the park is full or it already lives there.
+        bool addResident(const std::string &id, const std::string &source, const Pokemon::Pokemon &mon,
+                         const Trainer::Trainer &trainer);
+        void removeResidentById(const std::string &id);
+
 
         // Persistence
         void loadState();

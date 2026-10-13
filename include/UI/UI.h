@@ -45,6 +45,8 @@ namespace UI
         void handleSaveSelection();
         /// `titleName` is prose and `titleFolder` is a directory; they are NOT interchangeable.
         /// See Save/TitleFolder.h -- the folder carries the title id and the prose must not.
+        /// Runs one of the top-level, no-game screens (Poképark, Settings) until it exits.
+        template <typename Screen> void runHubScreen();
         void handleBackupSelection(AccountUid userUid, u64 titleId, const std::string &titleName,
                                    const std::string &titleFolder);
         // loadedFromCart: true when this session was read from the LIVE game save (the "load from
