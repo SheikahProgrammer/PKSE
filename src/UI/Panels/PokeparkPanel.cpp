@@ -619,12 +619,39 @@ namespace UI
             fb.drawCardBand(jX, jY, jW, 46);
             fb.drawText(jX + 24, jY + 10, "Poképark Journal", Colors::Text, TextStyle::Heading);
 
-            const auto &journal = mgr.getJournal();
+            // X cycles which kind of entry is shown.
+            static const char *const filterNames[7] = {"All", "Friendships", "Quarrels", "Discoveries", "Visitors", "Weather", "Photos"};
+            auto shown = [&](ParkJournalEventKind kind) {
+                using K = ParkJournalEventKind;
+                switch (screen.journalFilter)
+                {
+                case 1: return kind == K::Friendship || kind == K::Affection || kind == K::Bond;
+                case 2: return kind == K::Conflict || kind == K::Reconciliation || kind == K::Story;
+                case 3: return kind == K::Discovery || kind == K::Activity;
+                case 4: return kind == K::Visitor;
+                case 5: return kind == K::Weather;
+                case 6: return kind == K::Photo;
+                default: return true;
+                }
+            };
+            std::vector<const ParkJournalEvent *> journal; // oldest first, filtered
+            for (const auto &entry : mgr.getJournal())
+                if (shown(entry.kind))
+                    journal.push_back(&entry);
+            {
+                const std::string label = std::string("X: ") + filterNames[screen.journalFilter % 7];
+                int lw, lh;
+                fb.measureText(label, lw, lh, TextStyle::Caption);
+                fb.drawPill(jX + jW - lw - 44, jY + 8, lw + 28, 30, Color(255, 255, 255, 40));
+                fb.drawText(jX + jW - lw - 30, jY + 8 + (30 - lh) / 2, label, Colors::Text, TextStyle::Caption);
+            }
             if (journal.empty())
             {
-                fb.drawText(jX + 40, jY + 140, "No entries yet. Leave your Pokémon to explore and play together!",
+                fb.drawText(jX + 40, jY + 140,
+                            screen.journalFilter == 0 ? "No entries yet. Leave your Pokémon to explore and play together!"
+                                                      : "Nothing of that kind yet. Press X to change the filter.",
                             Colors::TextDim, TextStyle::Body);
-                fb.drawText(jX + 26, jY + jH - 32, "B: Close", Colors::TextDim, TextStyle::Caption);
+                fb.drawText(jX + 26, jY + jH - 32, "X: Filter  |  B: Close", Colors::TextDim, TextStyle::Caption);
                 return;
             }
 
@@ -639,7 +666,7 @@ namespace UI
             fb.setClipRect(jX, jY + 50, jW, bottom - jY - 50);
             for (int n = screen.pokeparkJournalScroll; n < count && y < bottom; ++n)
             {
-                const auto &entry = journal[count - 1 - n];
+                const auto &entry = *journal[count - 1 - n];
                 const std::string day = dayLabel(entry.timestamp);
                 if (day != lastDay)
                 {
@@ -669,7 +696,7 @@ namespace UI
                 y += rowH;
             }
             fb.clearClip();
-            fb.drawText(jX + 26, jY + jH - 32, "Up/Down: Scroll  |  Left/Right: Page  |  B: Close", Colors::TextDim,
+            fb.drawText(jX + 26, jY + jH - 32, "Up/Down: Scroll  |  Left/Right: Page  |  X: Filter  |  B: Close", Colors::TextDim,
                         TextStyle::Caption);
         }
 
@@ -824,8 +851,9 @@ namespace UI
                 screen.pokeparkRefillArmed -= fb.getDeltaSeconds();
             drawPopupHints(fb, wX + 16, wY + wH - 52, wW - 32, 40,
                            screen.pokeparkRefillArmed > 0.0f
-                               ? "X: Press again to send your whole party  |  B: Cancel"
-                               : "D-Pad: Move  |  L/R: Box  |  A: Send / Bring back  |  X: Send party  |  B: Done");
+                               ? (screen.pokeparkShinyArmed > 0.0f ? "Y: Press again to send every shiny  |  B: Cancel"
+                                                              : "X: Press again to send your whole party  |  B: Cancel")
+                               : "D-Pad: Move  |  L/R: Box  |  A: Send / Bring back  |  X: Party  |  Y: Shinies  |  B: Done");
         }
 
         // ---- The park --------------------------------------------------------------------------
@@ -837,7 +865,8 @@ namespace UI
             const bool photo = screen.pokeparkPhotoMode;
             const bool capturing = photo && screen.pokeparkPhotoCapture;
             // While a card, the journal or a line of dialogue is up, only it is tappable.
-            const bool overlay = screen.pokeparkCardActive || screen.pokeparkJournalActive || !screen.pokeparkDialogueText.empty();
+            const bool overlay = screen.pokeparkCardActive || screen.pokeparkJournalActive || screen.quickMenuActive ||
+                                 !screen.awayLines.empty() || !screen.pokeparkDialogueText.empty();
 
             // Photo mode: this frame is the photo (the hint is left out of it); the next one reports.
             if (screen.pokeparkPhotoPending)
@@ -884,10 +913,39 @@ namespace UI
             framebuffer.drawFilledRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 16, Colors::Panel);
             const int clipTop = PANEL_Y + 2, clipH = PANEL_H - 4;
             framebuffer.setClipRect(PANEL_X + 2, clipTop, PANEL_W - 4, clipH);
+            // Follow camera: magnify around the selected resident, easing in and out, and never showing
+            // past the edge of the scene.
+            const float zoom = framebuffer.spring("park.zoom", screen.followCamera && selected >= 0 ? 1.45f : 1.0f, 120.0f, 22.0f, 1.0f);
+            const bool zooming = zoom > 1.001f;
+            if (zooming)
+            {
+                const float halfW = PANEL_W / 2.0f / zoom, halfH = PANEL_H / 2.0f / zoom;
+                const float wantX = std::clamp(PANEL_X + (selected >= 0 ? residents[selected].x : PokeparkManager::SCENE_W / 2),
+                                               PANEL_X + halfW, PANEL_X + PANEL_W - halfW);
+                const float wantY = std::clamp(PANEL_Y + (selected >= 0 ? residents[selected].y - 30.0f : PANEL_H / 2.0f),
+                                               PANEL_Y + halfH, PANEL_Y + PANEL_H - halfH);
+                float focusScreenX, focusScreenY;
+                framebuffer.glide("park.focus", wantX, wantY, focusScreenX, focusScreenY, 260.0f, 32.0f);
+                framebuffer.pushCamera(focusScreenX, focusScreenY, PANEL_X + PANEL_W / 2.0f, PANEL_Y + PANEL_H / 2.0f, zoom);
+            }
             drawSky(framebuffer, PANEL_X + 2, PANEL_Y + 2, PANEL_W - 4, PANEL_H - 4, mgr.getHour(), -camera * 0.02f, time);
             drawFarLayer(framebuffer, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, env, -camera * 0.03f);
             drawMidLayer(framebuffer, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, env, -camera * 0.06f, time);
             drawGround(framebuffer, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, env, time, mgr.berryRipeness());
+
+            // The quick menu's activity filter: who is doing what, ringed in blue and named.
+            auto matchesFilter = [&](const ParkResident &r) {
+                switch (screen.activityFilter)
+                {
+                case 1: return r.activity == ParkActivity::Nap;
+                case 2: return r.activity == ParkActivity::Play || r.activity == ParkActivity::Run ||
+                               r.activity == ParkActivity::Fetch || r.activity == ParkActivity::Celebrate;
+                case 3: return r.mood == ParkMood::Lonely;
+                case 4: return r.activity == ParkActivity::Spar || r.activity == ParkActivity::Sulk ||
+                               r.activity == ParkActivity::Flee;
+                default: return false;
+                }
+            };
 
             // Residents and the visitor, back to front.
             std::vector<Actor> actors;
@@ -926,17 +984,23 @@ namespace UI
                 const bool isSelected = actor.index == selected && !photo;
                 const int rx = PANEL_X + static_cast<int>(res.x), feet = PANEL_Y + static_cast<int>(res.y);
                 const float depth = depthScale(res.y);
+                const bool flagged = screen.activityFilter != 0 && matchesFilter(res);
                 if (isSelected)
                 {
                     framebuffer.drawFilledEllipse(rx, feet, static_cast<int>(32 * depth), static_cast<int>(11 * depth),
                                                   Color(255, 215, 0, 110));
+                }
+                else if (flagged)
+                {
+                    framebuffer.drawFilledEllipse(rx, feet, static_cast<int>(32 * depth), static_cast<int>(11 * depth),
+                                                  Color(90, 200, 255, 120));
                 }
                 drawCreature(framebuffer, env, res.species, res.form, res.shiny, res.x, res.y, res.facingLeft, res.hop,
                              res.activity, res.animClock, res.isMoving, clipTop, clipH);
                 const int head = feet - static_cast<int>(64 * depth) - static_cast<int>(res.hop * 14 * depth);
                 if (res.emotion != ParkEmotion::None && !capturing)
                     drawEmotionBubble(framebuffer, rx, head - 2, res.emotion, res.emotionAge);
-                if (isSelected)
+                if (isSelected || flagged)
                 {
                     int nw, nh;
                     framebuffer.measureText(res.name, nw, nh, TextStyle::Caption);
@@ -944,15 +1008,19 @@ namespace UI
                     framebuffer.drawPill(npX, npY, npW, npH, Color(20, 25, 35, 210));
                     framebuffer.drawText(npX + 9, npY + (npH - nh) / 2, res.name, Color(255, 255, 255), TextStyle::Caption);
                 }
-                if (!overlay)
+                if (!overlay && !zooming)
                     screen.touchButtons.push_back({200 + actor.visibleIndex, rx - 35, head - 10, 70, feet - head + 20});
             }
             drawWeatherTint(framebuffer, PANEL_X + 2, PANEL_Y + 2, PANEL_W - 4, PANEL_H - 4, mgr.getWeather(),
                             mgr.getHour() >= 21 || mgr.getHour() < 6);
             drawParticles(framebuffer, PANEL_X, PANEL_Y, mgr.getParticles());
+            if (zooming)
+                framebuffer.popTransform();
 
-            // Tapping open ground throws a ball there (residents' targets above take precedence).
-            if (!photo && !overlay)
+            // Tapping open ground throws a ball there (residents' targets above take precedence). While
+            // the camera is zoomed the scene is not where its touch targets were registered, so neither is
+            // tappable (the d-pad still selects).
+            if (!photo && !overlay && !zooming)
                 screen.touchButtons.push_back({270, PANEL_X, PANEL_Y + 60, PANEL_W, PANEL_H - 100});
 
             if (!photo)
@@ -996,6 +1064,17 @@ namespace UI
                 framebuffer.drawPill(skyPillX, navPillY, skyPillW, navPillH, Color(255, 255, 255, 28));
                 framebuffer.drawText(skyPillX + 14, navPillY + (navPillH - sh) / 2, sky, Color(255, 255, 255), TextStyle::Caption);
 
+                if (screen.activityFilter != 0)
+                {
+                    static const char *const names[5] = {"", "Sleeping", "Playing", "Lonely", "Quarrelling"};
+                    int matching = 0;
+                    for (int i : visibleIndices)
+                        if (matchesFilter(residents[i]))
+                            ++matching;
+                    framebuffer.drawText(PANEL_X + 24, PANEL_Y + headerH + 28,
+                                         std::string("Showing: ") + names[screen.activityFilter] + "  (" + std::to_string(matching) + ")",
+                                         Color(150, 220, 255), TextStyle::Caption);
+                }
                 // The selected resident's current activity, under the header.
                 if (selected >= 0)
                 {
@@ -1022,8 +1101,8 @@ namespace UI
             }
 
             drawPopupHints(framebuffer, PANEL_X + 16, PANEL_Y + PANEL_H - 40, PANEL_W - 32, 34,
-                           "L/R: Habitat  |  Left/Right: Select  |  A: Profile  |  X: Talk  |  Up: Call  |  ZL: Ball  |  "
-                           "ZR: Berry  |  -: Photo  |  Y: Journal  |  B: Back");
+                           "L/R: Habitat  |  Left/Right: Select  |  A: Profile  |  X: Talk  |  Up: Call  |  Down: Menu  |  "
+                           "ZL: Ball  |  ZR: Berry  |  -: Photo  |  Y: Journal  |  B: Back");
 
             if (screen.pokeparkCardActive && selected >= 0)
             {
@@ -1054,6 +1133,85 @@ namespace UI
             {
                 PopIn pop(framebuffer, "pokeparkJournal");
                 drawJournal(screen, framebuffer, mgr);
+            }
+
+            if (screen.quickMenuActive)
+            {
+                PopIn pop(framebuffer, "parkQuickMenu");
+                static const char *const filterNames[5] = {"Everyone", "Sleeping", "Playing", "Lonely", "Quarrelling"};
+                static const char *const speedNames[3] = {"Slow (0.5x)", "Normal", "Fast (2x)"};
+                struct Row
+                {
+                    const char *label;
+                    std::string value;
+                };
+                const Row rows[7] = {
+                    {"Call everyone over", ""},
+                    {"Tuck everyone in", ""},
+                    {"Berries for everyone", ""},
+                    {"Highlight", filterNames[screen.activityFilter % 5]},
+                    {"Follow camera", screen.followCamera ? "On" : "Off"},
+                    {"Park speed", speedNames[std::clamp(mgr.speedIndex(), 0, 2)]},
+                    {"Effects", mgr.fewEffects() ? "Fewer" : "Full"},
+                };
+                constexpr int mW = 520, rowH = 50, mH = 70 + 7 * rowH + 56;
+                const int mX = PANEL_X + (PANEL_W - mW) / 2, mY = PANEL_Y + (PANEL_H - mH) / 2;
+                framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0x14, 0x12, 0x1D, 0x88));
+                framebuffer.drawSoftShadow(mX, mY, mW, mH, 16);
+                framebuffer.drawFilledRoundedRect(mX, mY, mW, mH, 16, Colors::Panel);
+                framebuffer.drawCardBand(mX, mY, mW, 46);
+                framebuffer.drawText(mX + 24, mY + 10, "Park", Colors::Text, TextStyle::Heading);
+                for (int i = 0; i < 7; ++i)
+                {
+                    const int ry = mY + 58 + i * rowH;
+                    const bool sel = screen.quickMenuRow == i;
+                    if (sel)
+                        framebuffer.pkSelectedButton(mX + 14, ry, mW - 28, rowH - 6, 4);
+                    else
+                        framebuffer.drawFilledRoundedRect(mX + 14, ry, mW - 28, rowH - 6, 8, Colors::PanelAlt);
+                    framebuffer.drawText(mX + 32, framebuffer.textYCenteredOn(ry + (rowH - 6) / 2), rows[i].label, Colors::Text);
+                    if (!rows[i].value.empty())
+                    {
+                        int vw, vh;
+                        framebuffer.measureText(rows[i].value, vw, vh);
+                        framebuffer.drawText(mX + mW - 32 - vw, framebuffer.textYCenteredOn(ry + (rowH - 6) / 2), rows[i].value,
+                                             sel ? Colors::Text : Colors::Accent);
+                    }
+                    screen.touchButtons.insert(screen.touchButtons.begin(), {500 + i, mX + 14, ry, mW - 28, rowH - 6});
+                }
+                drawPopupHints(framebuffer, mX + 12, mY + mH - 50, mW - 24, 40, "Up/Down: Move  |  A / Left/Right: Change  |  B: Close");
+            }
+
+            if (!screen.awayLines.empty())
+            {
+                PopIn pop(framebuffer, "parkAway");
+                constexpr int aW = 900;
+                int total = 0;
+                std::vector<std::vector<std::string>> wrapped;
+                for (const auto &line : screen.awayLines)
+                {
+                    wrapped.push_back(wrapTextToWidth(framebuffer, line, aW - 70, TextStyle::Body));
+                    total += static_cast<int>(std::min<size_t>(wrapped.back().size(), 2)) * 26 + 10;
+                }
+                const int aH = 120 + total;
+                const int aX = PANEL_X + (PANEL_W - aW) / 2, aY = PANEL_Y + (PANEL_H - aH) / 2;
+                framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0x14, 0x12, 0x1D, 0x99));
+                framebuffer.drawSoftShadow(aX, aY, aW, aH, 16);
+                framebuffer.drawFilledRoundedRect(aX, aY, aW, aH, 16, Colors::Panel);
+                framebuffer.drawCardBand(aX, aY, aW, 46);
+                framebuffer.drawText(aX + 24, aY + 10, "While you were away", Colors::Text, TextStyle::Heading);
+                int ay = aY + 62;
+                for (const auto &lines : wrapped)
+                {
+                    for (size_t i = 0; i < lines.size() && i < 2; ++i)
+                    {
+                        framebuffer.drawText(aX + 30, ay, lines[i], Colors::Text, TextStyle::Body);
+                        ay += 26;
+                    }
+                    ay += 10;
+                }
+                framebuffer.drawAdvanceArrow(aX + aW - 34, aY + aH - 16, Colors::Accent);
+                screen.touchButtons.insert(screen.touchButtons.begin(), {350, aX, aY, aW, aH});
             }
 
 

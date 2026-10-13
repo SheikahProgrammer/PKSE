@@ -246,6 +246,7 @@ namespace UI
         int pokeparkRosterRow = 0;
         int pokeparkRosterBox = -1;
         int pokeparkRosterSlot = 0;
+        float pokeparkShinyArmed = 0.0f;  // Y once arms "send every shiny", Y again within this window does it
         float pokeparkRefillArmed = 0.0f; // X once arms "send party", X again within this window does it
         void handlePokeparkRosterInput(u64 buttonsDown, const TouchInput &touch);
 

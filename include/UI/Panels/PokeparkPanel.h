@@ -40,6 +40,17 @@ namespace UI
         std::vector<TouchButton> touchButtons;
         bool exitRequested = false;
 
+        // Quick menu (Down): call / tuck in / berries for everyone, the activity filter, follow camera,
+        // park speed and effects.
+        bool quickMenuActive = false;
+        int quickMenuRow = 0;
+        int activityFilter = 0; // 0 all, 1 sleeping, 2 playing, 3 lonely, 4 quarrelling
+        bool followCamera = false;
+        // Journal: X cycles the kind shown (0 = all).
+        int journalFilter = 0;
+        // "While you were away", shown once on entering when the park had news.
+        std::vector<std::string> awayLines;
+
         int touchedButtonId(const TouchInput &touch) const;
         void handleInput(u64 buttonsDown, const TouchInput &touch);
     };

@@ -251,6 +251,9 @@ namespace UI
         void pushScale(float centerX, float centerY, float scale);
         // The same with separate axes: (-1, 1) mirrors, (1.1, 0.9) squashes. Pairs with popTransform().
         void pushTransform(float centerX, float centerY, float scaleX, float scaleY);
+        // A camera: the scene point (focusX, focusY) is drawn at (targetX, targetY), magnified by
+        // `scale`. Pairs with popTransform().
+        void pushCamera(float focusX, float focusY, float targetX, float targetY, float scale);
         void popTransform();
 
         // Saves the NEXT presented frame as a PNG at `path` (read back just before the swap,

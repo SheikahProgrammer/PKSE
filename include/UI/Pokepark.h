@@ -356,6 +356,23 @@ namespace UI
         void setResidentEmotion(int residentIndex, ParkEmotion emotion, float duration = 3.5f);
         void recordPhoto(const std::string &fileName);
 
+        // Quality of life.
+        /// Calls every resident over to the player (the sleepers stay asleep).
+        void callEveryone();
+        /// Everyone settles down for a nap where they are.
+        void tuckInEveryone();
+        /// Throws a berry or two for everyone, spread over the scene.
+        void berryForAll();
+        /// 0.5x / 1x / 2x park speed and fewer particles, both remembered between visits.
+        int speedIndex() const noexcept { return speed; }
+        void cycleSpeed() { speed = (speed + 1) % 3; saveState(); }
+        bool fewEffects() const noexcept { return reducedEffects; }
+        void toggleEffects() { reducedEffects = !reducedEffects; saveState(); }
+        /// When the park was last left; journal entries after it are "while you were away".
+        uint64_t lastVisitTime() const noexcept { return lastVisit; }
+        void markVisit();
+        std::vector<const ParkJournalEvent *> journalSince(uint64_t since) const;
+
         // The living world, for the renderer.
         const std::vector<ParkToy> &getToys() const noexcept { return toys; }
         const std::vector<ParkParticle> &getParticles() const noexcept { return particles; }
@@ -411,6 +428,9 @@ namespace UI
         std::map<std::string, ParkRelationship> relationships;
         uint64_t lastSimulationTime = 0;
         float realTimeUpdateClock = 0.0f;
+        int speed = 1;                // index into 0.5x / 1x / 2x
+        bool reducedEffects = false;
+        uint64_t lastVisit = 0;
 
         // The living world.
         std::vector<ParkToy> toys;

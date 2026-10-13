@@ -3042,6 +3042,32 @@ namespace UI
                 toggle(pokeparkRosterBox, pokeparkRosterSlot);
         }
 
+        // Y twice: send every shiny this game has (party first, then boxes) -- the park holds twelve.
+        if (buttonsDown & HidNpadButton_Y)
+        {
+            if (pokeparkShinyArmed > 0.0f)
+            {
+                int sent = 0;
+                auto trySend = [&](int box, int slot) {
+                    const Pokemon::Pokemon *mon = candidate(box, slot);
+                    if (mon && mon->speciesID() != 0 && !mon->isEgg() && mon->isShiny(mon->id32(), mon->species()) &&
+                        !mgr.hasResident(idOf(box, slot)) && mgr.addResident(idOf(box, slot), sourceOf(box, slot), *mon, trainer))
+                        ++sent;
+                };
+                for (int slot = 0; slot < static_cast<int>(trainer.party.size()); ++slot)
+                    trySend(-1, slot);
+                for (int b = 0; b < boxCount; ++b)
+                    for (int slot = 0; slot < static_cast<int>(trainer.getSlotsPerBox()); ++slot)
+                        trySend(b, slot);
+                postStatus(sent > 0 ? std::to_string(sent) + " shiny Pokémon moved into the Poképark!"
+                                    : "No new shinies to send (or the park is full).",
+                           180);
+                pokeparkShinyArmed = 0.0f;
+            }
+            else
+                pokeparkShinyArmed = 2.5f;
+        }
+
         // X twice: send the whole party.
         if (buttonsDown & HidNpadButton_X)
         {

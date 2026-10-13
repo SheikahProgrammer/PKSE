@@ -552,6 +552,47 @@ namespace UI
             saveState();
     }
 
+    void PokeparkManager::callEveryone()
+    {
+        for (int i : getVisibleResidentIndices(currentHabitat))
+            if (residents[i].activity != ParkActivity::Nap)
+                callResident(i);
+    }
+
+    void PokeparkManager::tuckInEveryone()
+    {
+        for (int i : getVisibleResidentIndices(currentHabitat))
+        {
+            startActivity(i, ParkActivity::Nap, 25.0f + static_cast<float>(rand() % 15));
+            residents[i].targetX = residents[i].x;
+            residents[i].targetY = residents[i].y;
+            setResidentEmotion(i, ParkEmotion::Sleep, 4.0f);
+        }
+    }
+
+    void PokeparkManager::berryForAll()
+    {
+        const int count = std::clamp(static_cast<int>(getVisibleResidentIndices(currentHabitat).size()) / 2 + 1, 1, 5);
+        for (int i = 0; i < count; ++i)
+            throwToy(ParkToyKind::Berry, PLAY_MIN_X + 80.0f + static_cast<float>(rand() % 900),
+                     PLAY_MIN_Y + 40.0f + static_cast<float>(rand() % 260), static_cast<ParkFlavor>(rand() % 5));
+    }
+
+    void PokeparkManager::markVisit()
+    {
+        lastVisit = static_cast<uint64_t>(std::time(nullptr));
+        saveState();
+    }
+
+    std::vector<const ParkJournalEvent *> PokeparkManager::journalSince(uint64_t since) const
+    {
+        std::vector<const ParkJournalEvent *> out;
+        for (const auto &ev : journal)
+            if (ev.timestamp > since)
+                out.push_back(&ev);
+        return out;
+    }
+
     PokeparkManager &PokeparkManager::instance()
     {
         static PokeparkManager s_instance;
@@ -1097,6 +1138,12 @@ namespace UI
                     currentHabitat = static_cast<ParkEnvironmentId>(std::clamp(std::atoi(line.substr(15).c_str()), 0, 3));
                 else if (line.rfind("version=", 0) == 0)
                     version = std::atoi(line.substr(8).c_str());
+                else if (line.rfind("speed=", 0) == 0)
+                    speed = std::clamp(std::atoi(line.substr(6).c_str()), 0, 2);
+                else if (line.rfind("fewEffects=", 0) == 0)
+                    reducedEffects = std::atoi(line.substr(11).c_str()) != 0;
+                else if (line.rfind("lastVisit=", 0) == 0)
+                    lastVisit = std::strtoull(line.substr(10).c_str(), nullptr, 10);
             }
             else if (section == "residents")
             {
@@ -1208,7 +1255,8 @@ namespace UI
         file << "[Settings]\n";
         file << "version=2\n";
         file << "lastSimulationTime=" << lastSimulationTime << "\n";
-        file << "currentHabitat=" << static_cast<int>(currentHabitat) << "\n\n";
+        file << "currentHabitat=" << static_cast<int>(currentHabitat) << "\n";
+        file << "speed=" << speed << "\nfewEffects=" << (reducedEffects ? 1 : 0) << "\nlastVisit=" << lastVisit << "\n\n";
 
         file << "[Residents]\n";
         for (const auto &r : residents)

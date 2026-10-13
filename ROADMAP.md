@@ -53,6 +53,37 @@ seeing the other's report). Tick items off as they land.
 11. [ ] Cross-game bank transfer with a per-transfer legality preview.
 12. [ ] Poképark: photo gallery viewer; a bond / friendship readout per resident.
 
+## Poképark ideas (behaviour and fun)
+
+Quality-of-life items (quick menu, follow camera, activity highlight, journal filter, away summary,
+speed / effects settings, send-all-shinies) are done. Still to come:
+
+**Behaviour**
+- [ ] Time-of-day routines: a morning, midday and evening spot per resident, learned from where it rests.
+- [ ] Moves in play: Surf across the lake, Flamethrower at the cinder ring, Dig and pop up elsewhere,
+      Psychic floating objects.
+- [ ] Abilities in play: Static sparking near Water types, Pickup finding a berry, Intimidate making
+      others back off.
+- [ ] Evolution families: babies follow their evolved relatives; protective behaviour toward pre-evolutions.
+- [ ] Rivalries with consequences: races for the same toy, contests for the best nap spot, a rematch
+      event days later.
+- [ ] Moods that persist between visits (a sulk or a good day carries over).
+- [ ] Memory of the player: remembers yesterday's visit, the last berry, how long you were away.
+- [ ] Nature quirks: Naughty steals berries, Careful walks around toys, Hasty queues first.
+
+**Quality of life still open**
+- [ ] Roster presets saved by name ("my team", "starters"), beyond party / shinies.
+
+**Fun additions**
+- [ ] Mini-games: ball-toss accuracy, hide-and-seek, berry catch, a race around the lake.
+- [ ] Collectibles (shiny stones, feathers, berries lying around) with a collection page.
+- [ ] Events: firefly festival, berry fair, a rainbow after storms, a meteor shower with wishes.
+- [ ] Befriend wild visitors until they become regulars; invite them as park-only residents.
+- [ ] Photo upgrades: frames, filters, stickers, an in-park gallery, the favourite photo as the banner.
+- [ ] Seasons with their own visuals and moods.
+- [ ] A small habit per resident (collects stones, dances to music, always sits under the tree).
+- [ ] Park builder: place benches, lanterns and a pond that some residents prefer.
+
 ## Done from the review
 
 - Encounter rows only merge when their level ranges overlap, so no impossible met level is offered.
@@ -66,3 +97,6 @@ seeing the other's report). Tick items off as they land.
 - Poképark residents are keyed on the Pokémon (species, PID, trainer id), not its slot.
 - A touch that begins during a pop-in keeps one mapping until release.
 - Encounter lookups are cached instead of rebuilt every frame.
+- Poképark quality of life: a quick menu (Down) to call everyone, tuck everyone in, throw berries for
+  all, highlight who is sleeping / playing / lonely / quarrelling, follow camera, park speed and fewer
+  effects; a journal filter (X); a "While you were away" summary; Y twice sends every shiny.

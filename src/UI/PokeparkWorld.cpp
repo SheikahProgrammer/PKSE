@@ -1382,6 +1382,9 @@ namespace UI
 
     void PokeparkManager::emit(ParkParticleKind kind, float x, float y, int count)
     {
+        // Fewer-effects mode keeps the meaningful ones (hearts, sparkles) and drops the trimmings.
+        if (reducedEffects && kind != ParkParticleKind::Sparkle && kind != ParkParticleKind::Heart)
+            return;
         for (int i = 0; i < count && particles.size() < 240; ++i)
         {
             ParkParticle p{kind, x + frange(-8, 8), y + frange(-3, 3), 0, 0, 0, 1.0f, 3.0f};
@@ -1496,7 +1499,8 @@ namespace UI
 
     void PokeparkManager::update(float dt)
     {
-        dt = std::clamp(dt, 0.0f, 0.05f);
+        static constexpr float SPEEDS[3] = {0.5f, 1.0f, 2.0f};
+        dt = std::clamp(dt, 0.0f, 0.05f) * SPEEDS[std::clamp(speed, 0, 2)];
         realTimeUpdateClock += dt;
         worldClock += dt;
         weatherCheck -= dt;
@@ -1586,7 +1590,8 @@ namespace UI
             }
         }
 
-        spawnAmbient(dt);
+        if (!reducedEffects)
+            spawnAmbient(dt);
         updateParticles(dt);
 
         // Needs, bonds and favourite spots are worth keeping, but not every frame.

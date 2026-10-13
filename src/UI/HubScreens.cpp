@@ -33,6 +33,50 @@ namespace UI
                                    pokeparkSelectedResident < static_cast<int>(visibleIndices.size());
         const int selectedIndex = haveSelection ? visibleIndices[pokeparkSelectedResident] : -1;
 
+        // News from while you were away: any button (or a tap) dismisses it.
+        if (!awayLines.empty())
+        {
+            if (buttonsDown || touch.justPressed())
+                awayLines.clear();
+            return;
+        }
+
+        // Quick menu.
+        if (quickMenuActive)
+        {
+            constexpr int rows = 7;
+            if (buttonsDown & HidNpadButton_B)
+            {
+                quickMenuActive = false;
+                return;
+            }
+            if (touchedId >= 500 && touchedId < 500 + rows)
+            {
+                quickMenuRow = touchedId - 500;
+                buttonsDown |= HidNpadButton_A;
+            }
+            if (buttonsDown & HidNpadButton_Up)
+                quickMenuRow = (quickMenuRow + rows - 1) % rows;
+            if (buttonsDown & HidNpadButton_Down)
+                quickMenuRow = (quickMenuRow + 1) % rows;
+            if (buttonsDown & (HidNpadButton_A | HidNpadButton_Left | HidNpadButton_Right))
+            {
+                switch (quickMenuRow)
+                {
+                case 0: mgr.callEveryone(); quickMenuActive = false; break;
+                case 1: mgr.tuckInEveryone(); quickMenuActive = false; break;
+                case 2: mgr.berryForAll(); quickMenuActive = false; break;
+                case 3:
+                    activityFilter = (activityFilter + ((buttonsDown & HidNpadButton_Left) ? 4 : 1)) % 5;
+                    break;
+                case 4: followCamera = !followCamera; break;
+                case 5: mgr.cycleSpeed(); break;
+                case 6: mgr.toggleEffects(); break;
+                }
+            }
+            return;
+        }
+
         // Photo mode: the UI is hidden and the park holds still; A saves exactly what is on screen.
         if (pokeparkPhotoMode)
         {
@@ -68,6 +112,12 @@ namespace UI
             if (buttonsDown & (HidNpadButton_B | HidNpadButton_Y))
             {
                 pokeparkJournalActive = false;
+                return;
+            }
+            if (buttonsDown & HidNpadButton_X)
+            {
+                journalFilter = (journalFilter + 1) % 7;
+                pokeparkJournalScroll = 0;
                 return;
             }
             const int maxScroll = std::max(0, static_cast<int>(mgr.getJournal().size()) - 1);
@@ -179,6 +229,12 @@ namespace UI
             pokeparkPhotoMode = true;
             return;
         }
+        if (buttonsDown & HidNpadButton_Down)
+        {
+            quickMenuActive = true;
+            quickMenuRow = 0;
+            return;
+        }
         if (!visibleIndices.empty())
         {
             if (buttonsDown & HidNpadButton_Left)
@@ -222,7 +278,7 @@ namespace UI
         }
         else if (buttonsDown & HidNpadButton_B)
         {
-            mgr.saveState(); // needs and bonds as they are right now
+            mgr.markVisit(); // also saves needs and bonds as they are right now
             exitRequested = true;
         }
     }
@@ -230,7 +286,18 @@ namespace UI
     PokeparkScreen::PokeparkScreen()
     {
         // The park loads on its own: it needs no save, only the residents each game sent over.
-        PokeparkManager::instance().initialize(nullptr, nullptr);
+        PokeparkManager &mgr = PokeparkManager::instance();
+        mgr.initialize(nullptr, nullptr);
+        // What happened since the park was last left, newest first (nothing on the very first visit).
+        if (mgr.lastVisitTime() > 0)
+        {
+            const auto news = mgr.journalSince(mgr.lastVisitTime());
+            for (auto it = news.rbegin(); it != news.rend() && view.awayLines.size() < 6; ++it)
+                view.awayLines.push_back((*it)->timeStr + "  " + (*it)->text);
+            if (news.size() > view.awayLines.size())
+                view.awayLines.push_back("... and " + std::to_string(news.size() - view.awayLines.size()) +
+                                         " more in the journal (Y).");
+        }
     }
 
     void PokeparkScreen::update(const PadState &pad, const TouchInput &touch)

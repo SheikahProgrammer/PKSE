@@ -1908,6 +1908,16 @@ namespace UI
         return ok;
     }
 
+    void PKSEFramebuffer::pushCamera(float focusX, float focusY, float targetX, float targetY, float scale)
+    {
+        if (!ensureFrame())
+            return;
+        nvgSave(vg);
+        nvgTranslate(vg, targetX, targetY);
+        nvgScale(vg, scale, scale);
+        nvgTranslate(vg, -focusX, -focusY);
+    }
+
     void PKSEFramebuffer::captureScreenshot()
     {
         const std::string path = screenshotPath;
