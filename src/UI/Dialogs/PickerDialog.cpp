@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -282,16 +284,26 @@ namespace UI
             // keep using the row index while the write uses pickerOrder, naming one value and writing
             // another with nothing on screen to show it.
             const bool reorder = screen.pickerUsesOrder();
-            for (int index = 0; index < visible && (first + index) < matchCount; ++index)
+            // The window eases to `first` (MonSummaryView's 180ms CubicOut feel) rather than jumping a
+            // row per press: rows are drawn at a pixel offset, one extra so the edge never shows a gap,
+            // clipped to the list. Only rows fully inside the window are tappable.
+            const float scrollPx = framebuffer.spring("picker.list", static_cast<float>(first * rowH), 600.0f, 49.0f,
+                                                      static_cast<float>(first * rowH));
+            const int drawFirst = std::max(0, static_cast<int>(scrollPx) / rowH);
+            const int windowH = visible * rowH;
+            framebuffer.setClipRect(panelX, listTop, panelWidth, windowH);
+            for (int index = 0; index <= visible && (drawFirst + index) < matchCount; ++index)
             {
-                const int entryIndex = first + index;                       // visible row
+                const int entryIndex = drawFirst + index;                   // visible row
                 const int row = screen.pickerRowForVisibleIndex(entryIndex); // row in the full list
                 if (row < 0)
                     continue;
                 const int value = (reorder && row < static_cast<int>(screen.pickerOrder.size()))
                                     ? screen.pickerOrder[row]
                                     : row;
-                const int rectY = listTop + index * rowH;
+                const int rectY = listTop + entryIndex * rowH - static_cast<int>(std::lround(scrollPx));
+                if (rectY + rowH <= listTop || rectY >= listTop + windowH)
+                    continue;
                 const bool isSelected = (entryIndex == selectedIndex);
                 if (isSelected)
                 {
@@ -305,8 +317,10 @@ namespace UI
                 framebuffer.drawText(panelX + 28, rectY + (rowH - 4 - framebuffer.lineHeight(TextStyle::Body)) / 2,
                                      label, rowColor);
                 // id = option row
-                screen.touchButtons.push_back({entryIndex, panelX + 12, rectY, panelWidth - 24, rowH - 4});
+                if (rectY >= listTop && rectY + rowH - 4 <= listTop + windowH)
+                    screen.touchButtons.push_back({entryIndex, panelX + 12, rectY, panelWidth - 24, rowH - 4});
             }
+            framebuffer.clearClip();
 
             if (matchCount == 0)
             {
@@ -342,7 +356,7 @@ namespace UI
 
             // Scrollbar on the panel's right edge (same thumb as everywhere else) when the list overflows.
             drawScrollbar(framebuffer, panelX + panelWidth - 14, listTop, visible * rowH, matchCount * rowH,
-                          first * rowH);
+                          static_cast<int>(scrollPx));
 
             // No hint strip in the card. The screen's nav bar is the ONE place controls are listed; a
             // second copy right above it is two rows of buttons for one dialog, saying different things.

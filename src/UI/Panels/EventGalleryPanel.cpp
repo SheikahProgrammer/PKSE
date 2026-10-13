@@ -506,6 +506,7 @@ namespace Panels {
                     const int dX = (fb.getWidth() - dW) / 2, dY = (fb.getHeight() - dH) / 2;
                     int cy = Dialogs::drawDialogFrame(fb, dX, dY, dW, dH, enabling ? "Enable event?" : "Disable event?",
                                                       enabling ? Colors::Text : Color(0xF0, 0x68, 0x68));
+                    fb.beginTyping(); // the message types out; the buttons follow it
                     for (const auto &l : wrapTextToWidth(fb, body, dW - 56, TextStyle::Body)) {
                         fb.drawText(dX + 28, cy, l, Colors::Text, TextStyle::Body);
                         cy += 28;

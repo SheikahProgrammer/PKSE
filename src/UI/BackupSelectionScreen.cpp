@@ -1,3 +1,4 @@
+#include <cmath>
 #include <algorithm>
 #include <cstdio>
 
@@ -110,6 +111,13 @@ namespace UI
         }
         // expire the failure notice
         if (statusFrames > 0) --statusFrames;
+
+        // A dialog still typing its message: A (or a tap) finishes it rather than answering unseen.
+        if (PKSEFramebuffer::typingInProgress() && ((buttonsDown & HidNpadButton_A) || touch.justPressed()))
+        {
+            PKSEFramebuffer::skipTyping();
+            return;
+        }
 
         if (showDeleteConfirmation)
         {
@@ -254,6 +262,7 @@ namespace UI
 
         if (showDeleteConfirmation)
         {
+            PopIn pop(framebuffer, "backup.deleteConfirm");
             drawDeleteConfirmation(framebuffer);
         }
     }
@@ -263,18 +272,25 @@ namespace UI
         const int startY = backupListTop();
         const int total = (int)backups.size();
         const int first = firstVisibleRow(selectedIndex, total);
-        const int last = std::min(total, first + LIST_MAX_VISIBLE);
-        for (int row = first; row < last; row++)
+        // The list eases to `first` instead of jumping a row at a time (the picker list's spring);
+        // rows are drawn at a pixel offset, one extra, clipped to the window.
+        const float scrollPx = framebuffer.spring("backup.list", static_cast<float>(first * LIST_ROW_H), 600.0f,
+                                                  49.0f, static_cast<float>(first * LIST_ROW_H));
+        const int drawFirst = std::max(0, static_cast<int>(scrollPx) / LIST_ROW_H);
+        const int last = std::min(total, drawFirst + LIST_MAX_VISIBLE + 1);
+        framebuffer.setClipRect(CARD_X, startY, CARD_W, LIST_MAX_VISIBLE * LIST_ROW_H);
+        for (int row = drawFirst; row < last; row++)
         {
-            int itemY = startY + (row - first) * LIST_ROW_H;
+            int itemY = startY + row * LIST_ROW_H - static_cast<int>(std::lround(scrollPx));
             bool selected = (row == selectedIndex);
             // Row 0 is the "create new backup" action — accent it to stand out.
             drawHomeTile(framebuffer, CARD_X + 14, itemY, CARD_W - 28, LIST_ROW_H - 10, backups[row].displayName,
                          selected, (row == 0));
         }
+        framebuffer.clearClip();
         // Scrollbar on the card's right edge when the list overflows -- same thumb as the details editor.
         drawScrollbar(framebuffer, CARD_X + CARD_W - 10, startY, LIST_MAX_VISIBLE * LIST_ROW_H, total * LIST_ROW_H,
-                      first * LIST_ROW_H);
+                      static_cast<int>(scrollPx));
     }
 
     void BackupSelectionScreen::drawDeleteConfirmation(PKSEFramebuffer &framebuffer)
@@ -285,6 +301,7 @@ namespace UI
 
         int centerY =
             Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, h, "Delete Backup?", Colors::Warning);
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
         framebuffer.drawText(dialogX + 24, centerY, "This action cannot be undone.", Colors::TextDim);
         if (deleteConfirmationIndex >= 0 && deleteConfirmationIndex < (int)backups.size())
         {

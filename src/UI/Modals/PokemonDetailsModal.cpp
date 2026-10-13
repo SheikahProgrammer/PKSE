@@ -234,7 +234,12 @@ namespace UI
             const int contentTop = colY + 14 + renderSz + 40 + teraBadgeHeight;
             const int legalityH = 34; // legality line is pinned below the scroll
             const int contentBottom = colY + colH - legalityH - 6;
-            const int scroll = screen.details.leftScroll;
+            // The column eases to where it is scrolled (MonSummaryView: 180ms CubicOut) instead of
+            // jumping a row at a time. `scrollTarget` is the real offset and drives the follow logic
+            // below; `scroll` is only where it is drawn this frame.
+            const int scrollTarget = screen.details.leftScroll;
+            const int scroll = static_cast<int>(std::lround(framebuffer.spring(
+                "details.leftScroll", static_cast<float>(scrollTarget), 600.0f, 49.0f, static_cast<float>(scrollTarget))));
             int infoRowY = contentTop;
             int selRowY = -1;           // absolute content-Y of the selected row
             std::vector<int> leftOrder; // editable field ids in draw order (nav list)
@@ -598,7 +603,7 @@ namespace UI
             {
                 const int contentH = infoRowY - contentTop;
                 const int viewH = contentBottom - contentTop;
-                int scrollOffset = scroll;
+                int scrollOffset = scrollTarget;
                 if (selRowY >= 0)
                 {
                     if (selRowY - scrollOffset < contentTop)
@@ -612,7 +617,8 @@ namespace UI
                 if (scrollOffset > maxS)
                     scrollOffset = maxS;
                 screen.details.leftScroll = scrollOffset;
-                drawScrollbar(framebuffer, leftColumnX + Lw - 7, contentTop, viewH, contentH, scrollOffset);
+                drawScrollbar(framebuffer, leftColumnX + Lw - 7, contentTop, viewH, contentH,
+                              std::clamp(scroll, 0, maxS));
             }
 
             // Legality summary pinned at the bottom of the left pane (R / tap opens the full issue list).

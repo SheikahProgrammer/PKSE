@@ -270,6 +270,9 @@ namespace UI
 
         // A pop-in left open by an early return must not leak its transform into the next frame.
         popStack.clear();
+        typingBusyLastFrame = typingBusyThisFrame;
+        typingBusyThisFrame = false;
+        skipTypingRequested = false;
         ++frameIndex;
         // Drop motion for ids gone a while; only every couple of seconds, since it walks the map.
         if (frameIndex % 128 == 0)
@@ -913,15 +916,19 @@ namespace UI
     {
         if (text.empty() || !ensureFrame())
             return;
+        const size_t shown = typedBytes(text);
+        if (shown == 0)
+            return;
+        const char *end = text.c_str() + shown;
         applyTextStyle(style);
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
         nvgFillColor(vg, toNVG(color));
-        nvgText(vg, (float)textX, (float)textY, text.c_str(), nullptr);
+        nvgText(vg, (float)textX, (float)textY, text.c_str(), end);
         // Faux-bold for the display styles (Nunito is loaded regular; re-stroke slightly offset).
         // For pixel fonts, we skip faux-bolding so glyph edges stay crisp without blur.
         const bool usePixel = (g_themeMode == ThemeMode::RetroDS && fontPixel >= 0);
         if (!usePixel && (style == TextStyle::Heading || style == TextStyle::Title))
-            nvgText(vg, textX + 0.6f, (float)textY, text.c_str(), nullptr);
+            nvgText(vg, textX + 0.6f, (float)textY, text.c_str(), end);
     }
 
     void PKSEFramebuffer::drawSymbol(int symbolX, int symbolY, const std::string &symbol, Color color, TextStyle style)
@@ -1746,18 +1753,114 @@ namespace UI
         bool fresh;
         MotionEntry &entry = motionFor(id, fresh);
         if (fresh)
+        {
             entry.start = totalSeconds;
+            entry.typedTotal = 0;
+            entry.typedDoneAt = -1.0;
+            entry.typingSkipped = false;
+        }
         nvgSave(vg);
         // Finished pop-ins skip the transform entirely (applied = true), so a dialog that has been
         // up for a while draws exactly as it did before this existed.
         const bool done = totalSeconds - entry.start >= POP_SCALE_SECONDS;
-        popStack.push_back({entry.start, done});
+        PopScope scope{entry.start, done, &entry};
+        popStack.push_back(scope);
+    }
+
+    // DialogueChoiceBox: 24ms a character, after the window has mostly popped in.
+    static constexpr double TYPE_SECONDS_PER_CHAR = 0.024;
+    static constexpr double TYPE_START_DELAY = 0.06;
+    static constexpr double TYPE_MAX_SECONDS = 1.0; // a long message speeds up rather than dragging
+    static constexpr double CHOICES_FADE_SECONDS = 0.100;
+
+    static PKSEFramebuffer *s_typingFramebuffer = nullptr;
+
+    bool PKSEFramebuffer::typingInProgress() { return s_typingFramebuffer && s_typingFramebuffer->typingBusyLastFrame; }
+    void PKSEFramebuffer::skipTyping()
+    {
+        if (s_typingFramebuffer)
+            s_typingFramebuffer->skipTypingRequested = true;
+    }
+
+    void PKSEFramebuffer::beginTyping()
+    {
+        if (popStack.empty())
+            return;
+        s_typingFramebuffer = this;
+        PopScope &scope = popStack.back();
+        MotionEntry &entry = *scope.entry;
+        if (skipTypingRequested)
+            entry.typingSkipped = true;
+        scope.typing = true;
+        scope.typed = 0;
+        if (entry.typingSkipped)
+        {
+            scope.budget = 1 << 30;
+            return;
+        }
+        const double perChar =
+            entry.typedTotal > 0 ? std::min(TYPE_SECONDS_PER_CHAR, TYPE_MAX_SECONDS / entry.typedTotal)
+                                 : TYPE_SECONDS_PER_CHAR;
+        const double t = totalSeconds - scope.start - TYPE_START_DELAY;
+        scope.budget = t <= 0 ? 0 : static_cast<int>(t / perChar);
+    }
+
+    size_t PKSEFramebuffer::typedBytes(const std::string &text)
+    {
+        if (popStack.empty() || !popStack.back().typing)
+            return text.size();
+        PopScope &scope = popStack.back();
+        // Count in code points, so an accented letter appears whole.
+        size_t bytes = 0;
+        while (bytes < text.size())
+        {
+            if (scope.typed >= scope.budget)
+            {
+                // Keep counting what is still due, so endTyping() knows the message is unfinished.
+                for (size_t rest = bytes; rest < text.size(); ++rest)
+                    if ((static_cast<unsigned char>(text[rest]) & 0xC0) != 0x80)
+                        ++scope.typed;
+                return bytes;
+            }
+            ++bytes;
+            while (bytes < text.size() && (static_cast<unsigned char>(text[bytes]) & 0xC0) == 0x80)
+                ++bytes;
+            ++scope.typed;
+        }
+        return bytes;
+    }
+
+    void PKSEFramebuffer::endTyping()
+    {
+        if (popStack.empty() || !popStack.back().typing)
+            return;
+        PopScope &scope = popStack.back();
+        MotionEntry &entry = *scope.entry;
+        scope.typing = false;
+        entry.typedTotal = scope.typed;
+        float choices;
+        if (scope.typed <= scope.budget)
+        {
+            if (entry.typedDoneAt < 0)
+                entry.typedDoneAt = totalSeconds;
+            choices = static_cast<float>(std::clamp((totalSeconds - entry.typedDoneAt) / CHOICES_FADE_SECONDS, 0.0, 1.0));
+            choices = easeCubicOut(choices);
+        }
+        else
+        {
+            entry.typedDoneAt = -1.0;
+            choices = 0.0f;
+            typingBusyThisFrame = true;
+        }
+        if (vg && frameActive && choices < 1.0f)
+            nvgGlobalAlpha(vg, scope.fade * choices);
     }
 
     void PKSEFramebuffer::endPopIn()
     {
         if (popStack.empty())
             return;
+        endTyping(); // a message with no buttons after it still records that it finished
         popStack.pop_back();
         if (vg && frameActive)
             nvgRestore(vg);
@@ -1781,5 +1884,6 @@ namespace UI
         nvgScale(vg, scale, scale);
         nvgTranslate(vg, -centerX, -centerY);
         nvgGlobalAlpha(vg, fade);
+        scope.fade = fade;
     }
 }

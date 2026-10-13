@@ -647,6 +647,7 @@ namespace UI
             const int dialogY = (framebuffer.getHeight() - h) / 2;
             int centerY =
                 Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, h, "Release", Colors::Red);
+                framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, centerY, message, Colors::Text);
             framebuffer.drawText(dialogX + 28, centerY + 34, "This can't be undone.", Colors::TextDim,
                                  TextStyle::Caption);
@@ -672,6 +673,7 @@ namespace UI
             const int dialogY = (framebuffer.getHeight() - h) / 2;
             int centerY =
                 Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, h, "New Pokémon", Colors::Primary);
+                framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, centerY, "Keep this new Pokémon?", Colors::Text);
             framebuffer.drawText(dialogX + 28, centerY + 34, "Discard removes it; Back keeps editing.", Colors::TextDim,
                                  TextStyle::Caption);
@@ -697,6 +699,7 @@ namespace UI
             const int dialogY = (framebuffer.getHeight() - h) / 2;
             int centerY = Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, h, "Unsaved changes",
                                                    Colors::Orange);
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, centerY, "This Pokémon has unsaved changes.", Colors::Text);
             framebuffer.drawText(dialogX + 28, centerY + 34, "Discard loses them; Back keeps editing.",
                         Colors::TextDim, TextStyle::Caption);
@@ -733,12 +736,14 @@ namespace UI
             const int dialogY = (framebuffer.getHeight() - dialogHeight) / 2;
             const int contentY = Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth,
                                                           dialogHeight, "Trade Evolve", Colors::Accent);
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, contentY, "It has two trade evolutions and is holding neither item.",
                                  Colors::Text);
             framebuffer.drawText(dialogX + 28, contentY + 30, "Choose which one it becomes.",
                                  Colors::TextDim, TextStyle::Caption);
 
             screen.touchButtons.clear();
+            framebuffer.endTyping(); // the rows are the choices: they fade in once the message is out
             for (int candidateIndex = 0; candidateIndex < offer.candidateCount; ++candidateIndex)
             {
                 const Pokemon::TradeEvolution &becomes = offer.candidates[candidateIndex];
@@ -780,6 +785,7 @@ namespace UI
             const int dialogY = (framebuffer.getHeight() - dialogHeight) / 2;
             const int centerY = Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth,
                                                          dialogHeight, "Trade Evolve", Colors::Accent);
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, centerY, "This Pokémon evolves when it is traded.", Colors::Text);
             framebuffer.drawText(dialogX + 28, centerY + 32,
                                  "Its game records the other trainer, so PKSE needs one.",
@@ -864,8 +870,10 @@ namespace UI
             {
                 dialogX = (framebuffer.getWidth() - dialogWidth) / 2;
                 dialogY = (framebuffer.getHeight() - dialogHeight) / 2;
-                return Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, dialogHeight, title,
-                                                accent);
+                const int contentY = Dialogs::drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth,
+                                                              dialogHeight, title, accent);
+                framebuffer.beginTyping(); // the message types out; the buttons follow it
+                return contentY;
             }
 
             void endMoveConfirm(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer, int dialogX, int dialogY,

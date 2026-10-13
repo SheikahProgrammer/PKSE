@@ -135,6 +135,11 @@ namespace UI
         // still while the cursor moves within it instead of re-centring (which reads as paging).
         int scrollRow = 0;
         void scrollSelectionIntoView();
+
+        // The PKForge look (HomePage's cartridge shelf): trainer tabs, one horizontal row of game
+        // cartridges that glides to keep the chosen one centred, and a panel naming it in full.
+        // The other themes keep the grid drawn by draw().
+        void drawShelf(PKSEFramebuffer &framebuffer);
     };
 }
 

@@ -220,6 +220,18 @@ namespace UI
         float spring(const char *id, float target, float stiffness = 420.0f, float damping = 41.0f,
                      float initial = 0.0f);
 
+        // DialogueChoiceBox's typewriter. Inside a pop-in, text drawn after beginTyping() is revealed
+        // a character at a time (24ms each, PKForge's pace, but never longer than a second for the
+        // whole message); everything drawn after endTyping() -- the buttons -- stays hidden until the
+        // message is out, then fades in over 100ms. drawGlyphButton calls endTyping(), so a dialog
+        // only has to say where its message starts. A no-op outside a pop-in.
+        void beginTyping();
+        void endTyping();
+        // True while some dialog is still typing (as of the last frame drawn). The screens check it
+        // first: A, or a tap, then finishes the message instead of answering the dialog unseen.
+        static bool typingInProgress();
+        static void skipTyping();
+
         // Scale everything drawn until popTransform() about (centerX, centerY). Pairs must nest.
         void pushScale(float centerX, float centerY, float scale);
         void popTransform();
@@ -281,6 +293,9 @@ namespace UI
             double start = 0.0;        // pop-in start time
             float value[2] = {0, 0};
             float velocity[2] = {0, 0};
+            int typedTotal = 0;        // characters the typed message had last frame
+            double typedDoneAt = -1.0; // when the message finished typing (-1 = not yet)
+            bool typingSkipped = false;
         };
         std::unordered_map<std::string, MotionEntry> motion;
         uint64_t frameIndex = 1;
@@ -291,7 +306,15 @@ namespace UI
         {
             double start;
             bool applied; // the transform has been applied (at the window's first fill)
+            MotionEntry *entry;
+            float fade = 1.0f;     // the window's current opacity
+            bool typing = false;   // between beginTyping() and endTyping()
+            int typed = 0;         // characters drawn (or due) so far this frame
+            int budget = 0;        // characters revealed by now
         };
+        bool typingBusyThisFrame = false, typingBusyLastFrame = false, skipTypingRequested = false;
+        // How many of `text`'s bytes the typewriter lets through; advances the scope's count.
+        size_t typedBytes(const std::string &text);
         std::vector<PopScope> popStack;
         // Called by the fills: inside a pop-in, the first fill smaller than the screen is the window,
         // so that is where the scale goes on.

@@ -34,6 +34,7 @@ namespace UI
                           y = (framebuffer.getHeight() - dialogHeight) / 2;
                 int centerY = drawDialogFrame(framebuffer, dialogX, y, dialogWidth, dialogHeight, "Unsaved Changes",
                                               Colors::Warning);
+                framebuffer.beginTyping(); // the message types out; the buttons follow it
                 framebuffer.drawText(dialogX + 24, centerY, "You have unsaved changes.", Colors::Text);
                 framebuffer.drawText(dialogX + 24, centerY + 28, "Changes will be lost if you continue.",
                                      Colors::TextDim);
@@ -125,6 +126,7 @@ namespace UI
 
             int centerY = drawDialogFrame(framebuffer, dialogX, y, dialogWidth, h, "Write to the game save?",
                                           Color(235, 120, 120));
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 24, centerY,
                         "This replaces " + screen.titleName + "'s save data", Colors::Text);
             framebuffer.drawText(dialogX + 24, centerY + 26,

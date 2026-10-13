@@ -158,6 +158,7 @@ namespace UI
                                 Color fillColor = Colors::PanelAlt, Color textColor = Colors::Text,
                                 bool pressed = false)
     {
+        framebuffer.endTyping(); // a dialog's buttons wait for its message (see beginTyping)
         if (isPkForgeTheme())
         {
             // A destructive action keeps its red as the selected-button accent (UiTokens.AccentDanger).

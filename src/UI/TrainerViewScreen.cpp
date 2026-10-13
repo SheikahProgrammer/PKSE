@@ -4541,6 +4541,14 @@ namespace UI
             pendingTapButtonId = -1;
         }
 
+        // A dialog still typing its message: A (or a tap) finishes it rather than answering it
+        // before it has been read -- DialogueChoiceBox's rule. Nothing else acts on that press.
+        if (PKSEFramebuffer::typingInProgress() && ((buttonsDown & HidNpadButton_A) || touch.justPressed()))
+        {
+            PKSEFramebuffer::skipTyping();
+            return;
+        }
+
         // Remember each shared-cursor panel's place while it is open (see boxResumeSlot).
         if (detailViewActive && selectedMode == ViewMode::Boxes && selectedItemIndex >= 0)
             boxResumeSlot = selectedItemIndex;

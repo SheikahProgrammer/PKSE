@@ -1,6 +1,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cctype>
+#include <cmath>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -334,6 +335,8 @@ namespace UI
         int count = titleCount();
         if (count <= 0)
             return 1;
+        if (isPkForgeTheme())
+            return count; // the shelf is one row; Up/Down then fall through to the trainer switch
         return count < MAX_COLS ? count : MAX_COLS;
     }
 
@@ -466,12 +469,14 @@ namespace UI
             }
         }
 
-        // Switch users with the shoulder buttons (only when there's more than one).
+        // Switch users with the shoulder buttons (only when there's more than one). On the PKForge
+        // shelf the trainer tabs sit above the games, so Up/Down reach them too.
         if (users.size() > 1)
         {
-            if (buttonsDown & HidNpadButton_L)
+            const bool shelf = isPkForgeTheme();
+            if ((buttonsDown & HidNpadButton_L) || (shelf && (buttonsDown & HidNpadButton_Up)))
                 setUser(userIndex - 1);
-            if (buttonsDown & HidNpadButton_R)
+            if ((buttonsDown & HidNpadButton_R) || (shelf && (buttonsDown & HidNpadButton_Down)))
                 setUser(userIndex + 1);
         }
 
@@ -514,6 +519,12 @@ namespace UI
 
         framebuffer.clear(Colors::Background);
         drawTitleBar(framebuffer, "Pokémon Save Editor", "v" + VERSION_STRING);
+
+        if (isPkForgeTheme())
+        {
+            drawShelf(framebuffer);
+            return;
+        }
 
         const UserEntry *u = currentUser();
 
@@ -657,6 +668,283 @@ namespace UI
         // Drawn last so it sits above the grid.
         if (fileBrowser.active)
             Dialogs::drawFileBrowser(fileBrowser, framebuffer, browserTaps);
+    }
+
+    // ---- The PKForge shelf ------------------------------------------------------------------------
+
+    // Kit.EraColor: the cartridge plastic per console era.
+    static Color eraColor(int generation)
+    {
+        switch (generation)
+        {
+        case 1:
+        case 2: return Color(0x9A, 0xA6, 0xB2);
+        case 3: return Color(0x8B, 0x7B, 0xD8);
+        case 4: return Color(0x5E, 0x86, 0xD4);
+        case 5: return Color(0x4E, 0x5A, 0x68);
+        case 6: return Color(0x4F, 0xB6, 0xDB);
+        case 7: return Color(0xEE, 0x9A, 0x4A);
+        case 8: return Color(0xD4, 0x5C, 0x6D);
+        case 9: return Color(0x9A, 0x6A, 0xD8);
+        default: return Pksm::InkSoft;
+        }
+    }
+
+    // Kit.ConsoleCode.
+    static const char *consoleCode(int generation)
+    {
+        switch (generation)
+        {
+        case 1:
+        case 2: return "GB";
+        case 3: return "GBA";
+        case 4:
+        case 5: return "DS";
+        case 6:
+        case 7: return "3DS";
+        case 8:
+        case 9: return "Switch";
+        default: return "";
+        }
+    }
+
+    static int titleGeneration(const SaveSelectScreen::TitleEntry &title)
+    {
+        if (title.gameVersion == Enums::GameVersion::Invalid)
+            return title.filePath.empty() ? 8 : 0; // an installed title PKSE opens is a Switch game
+        return Enums::getVersionGeneration(Enums::getGroupRepVersion(title.gameVersion));
+    }
+
+    static Color darker(Color c, float by)
+    {
+        return Color(static_cast<uint8_t>(c.red * (1 - by)), static_cast<uint8_t>(c.green * (1 - by)),
+                     static_cast<uint8_t>(c.blue * (1 - by)));
+    }
+
+    // `text` cut to fit `maxWidth`, ending in an ellipsis when it had to be (the shelf's TailTruncation).
+    static std::string fitWidth(PKSEFramebuffer &framebuffer, const std::string &text, int maxWidth, TextStyle style)
+    {
+        int w, h;
+        framebuffer.measureText(text, w, h, style);
+        if (w <= maxWidth)
+            return text;
+        // Shorten one UTF-8 code point at a time (never splitting an accented letter) until the
+        // text plus its ellipsis fits.
+        size_t end = text.size();
+        while (end > 0)
+        {
+            do
+                --end;
+            while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0) == 0x80);
+            const std::string candidate = text.substr(0, end) + "...";
+            framebuffer.measureText(candidate, w, h, style);
+            if (w <= maxWidth)
+                return candidate;
+        }
+        return "...";
+    }
+
+    static const IconImage *titleIconFor(const SaveSelectScreen::TitleEntry &title)
+    {
+        if (!title.iconPath.empty())
+        {
+            const IconImage &fileIc = SystemIcons::fileIcon(title.iconPath);
+            if (fileIc.valid())
+                return &fileIc;
+        }
+        const IconImage &sysIc = SystemIcons::titleIcon(title.titleId);
+        return sysIc.valid() ? &sysIc : nullptr;
+    }
+
+    void SaveSelectScreen::drawShelf(PKSEFramebuffer &framebuffer)
+    {
+        const int screenW = framebuffer.getWidth();
+        const UserEntry *u = currentUser();
+
+        // -- Trainer tabs: one menu button per user, the current one cobalt. ------------------------
+        constexpr int tabsY = HEADER_HEIGHT + 14, tabH = 56, avatar = 40;
+        framebuffer.drawText(24, framebuffer.textYCenteredOn(tabsY + tabH / 2, TextStyle::Heading), "Trainer",
+                             Pksm::Ink, TextStyle::Heading);
+        int tabX = 176;
+        for (int index = 0; index < static_cast<int>(users.size()); ++index)
+        {
+            const UserEntry &user = users[index];
+            const bool current = index == userIndex;
+            int nameW, nameH;
+            framebuffer.measureText(user.name, nameW, nameH, TextStyle::Body);
+            const int tabW = std::min(260, avatar + nameW + 40);
+            if (tabX + tabW > screenW - 24)
+                break; // more users than fit: the shoulder buttons still reach them
+            const float pop = framebuffer.spring(("picker.user." + std::to_string(index)).c_str(),
+                                                 current ? 1.04f : 1.0f, 900.0f, current ? 33.0f : 60.0f, 1.0f);
+            framebuffer.pushScale(tabX + tabW / 2.0f, tabsY + tabH / 2.0f, pop);
+            if (current)
+                framebuffer.pkSelectedButton(tabX, tabsY, tabW, tabH, 4);
+            else
+                framebuffer.pkBlackButton(tabX, tabsY, tabW, tabH, 4);
+            const int avX = tabX + 10, avY = tabsY + (tabH - avatar) / 2;
+            const IconImage &av = SystemIcons::userIcon(user.accountUid);
+            if (av.valid())
+                framebuffer.drawImageScaled(avX, avY, av.width, av.height, avatar, avatar, av.data, 4);
+            else
+                framebuffer.drawFilledRoundedRect(avX, avY, avatar, avatar, 4, Pksm::LogoGrid);
+            framebuffer.drawRoundedRect(avX, avY, avatar, avatar, 4, Pksm::LogoVoid, 2);
+            framebuffer.drawText(avX + avatar + 12, framebuffer.textYCenteredOn(tabsY + tabH / 2),
+                                 fitWidth(framebuffer, user.name, tabW - avatar - 34, TextStyle::Body),
+                                 current ? Pksm::Ink : Pksm::InkSoft);
+            framebuffer.popTransform();
+            userRects.push_back({tabX, tabsY, tabW, tabH, index});
+            tabX += tabW + 10;
+        }
+
+        // -- "Games" + a count chip, like the shelf's header row. ---------------------------------
+        constexpr int gamesY = tabsY + tabH + 18;
+        framebuffer.drawText(24, gamesY, "Games", Pksm::Ink, TextStyle::Heading);
+        const int count = titleCount();
+        {
+            const std::string chip = std::to_string(count) + (count == 1 ? " save" : " saves");
+            int cw, ch;
+            framebuffer.measureText(chip, cw, ch, TextStyle::Body);
+            const int chipW = cw + 28, chipH = 36, chipX = screenW - 24 - chipW;
+            framebuffer.pkBlackButton(chipX, gamesY - 2, chipW, chipH, 4);
+            framebuffer.drawText(chipX + 14, framebuffer.textYCenteredOn(gamesY - 2 + chipH / 2), chip, Pksm::Ink);
+        }
+
+        // -- The cartridge shelf. -----------------------------------------------------------------
+        constexpr int shelfY = gamesY + 44, tileW = 196, tileH = 236, tileGap = 16;
+        constexpr int shelfX = 16;
+        const int shelfW = screenW - 32;
+        if (count == 0)
+        {
+            const char *message = "No Pokémon saves for this trainer.  Y opens a save file.";
+            int mw, mh;
+            framebuffer.measureText(message, mw, mh, TextStyle::Body);
+            framebuffer.drawText((screenW - mw) / 2, shelfY + tileH / 2 - mh / 2, message, Pksm::InkSoft);
+        }
+        else
+        {
+            // Centre the chosen cart, within the ends of the row; the row glides there on a spring
+            // (no overshoot) instead of jumping, and snaps when the trainer changes.
+            const int contentW = count * tileW + (count - 1) * tileGap;
+            const float maxScroll = static_cast<float>(std::max(0, contentW - shelfW));
+            const float wanted = std::clamp(titleIndex * (tileW + tileGap) + tileW / 2.0f - shelfW / 2.0f, 0.0f,
+                                            maxScroll);
+            const float scroll = framebuffer.spring(("picker.shelf." + std::to_string(userIndex)).c_str(), wanted,
+                                                    260.0f, 2.0f * std::sqrt(260.0f), wanted);
+            const int originX = contentW < shelfW ? shelfX + (shelfW - contentW) / 2
+                                                  : shelfX - static_cast<int>(std::lround(scroll));
+
+            // Room above and below for the focus pop, so a scaled tile is not cut by the clip.
+            framebuffer.setClipRect(shelfX, shelfY - 10, shelfW, tileH + 20);
+            for (int index = 0; index < count; ++index)
+            {
+                const int tileX = originX + index * (tileW + tileGap);
+                if (tileX + tileW < shelfX - 20 || tileX > shelfX + shelfW + 20)
+                    continue;
+                const TitleEntry &title = u->titles[index];
+                const bool selected = index == titleIndex;
+                const int generation = titleGeneration(title);
+
+                const float pop = framebuffer.spring(("picker.tile." + std::to_string(index)).c_str(),
+                                                     selected ? 1.05f : 1.0f, 900.0f, selected ? 33.0f : 60.0f, 1.0f);
+                framebuffer.pushScale(tileX + tileW / 2.0f, shelfY + tileH / 2.0f, pop);
+
+                // Device panel, or the selected look: cobalt body, pale edge.
+                if (selected)
+                    framebuffer.pkSelectedButton(tileX, shelfY, tileW, tileH, 6);
+                else
+                    framebuffer.pkPanel(tileX, shelfY, tileW, tileH);
+
+                // The cartridge: era plastic, a dark contact strip, the label sticker with the art.
+                constexpr int cartW = 132, cartH = 146;
+                const int cartX = tileX + (tileW - cartW) / 2, cartY = shelfY + 14;
+                const Color plastic = eraColor(generation);
+                framebuffer.drawFilledRoundedRect(cartX + 3, cartY + 3, cartW, cartH, 7, Color(0x14, 0x12, 0x1D, 0x88));
+                framebuffer.drawFilledRoundedRect(cartX, cartY, cartW, cartH, 7, plastic);
+                framebuffer.drawRoundedRect(cartX, cartY, cartW, cartH, 7, darker(plastic, 0.25f), 2);
+                framebuffer.drawFilledRect(cartX + 6, cartY + 2, cartW - 12, 12, Pksm::LogoVoid);
+                const int stickerX = cartX + 9, stickerY = cartY + 19, stickerW = cartW - 18, stickerH = cartH - 28;
+                framebuffer.drawFilledRoundedRect(stickerX, stickerY, stickerW, stickerH, 4, Pksm::PaperShade);
+                framebuffer.drawRoundedRect(stickerX, stickerY, stickerW, stickerH, 4, Pksm::LogoVoid, 1);
+                const int art = std::min(stickerW, stickerH) - 8;
+                const int artX = stickerX + (stickerW - art) / 2, artY = stickerY + (stickerH - art) / 2;
+                if (const IconImage *icon = titleIconFor(title))
+                    framebuffer.drawImageScaled(artX, artY, icon->width, icon->height, art, art, icon->data, 4);
+                else
+                {
+                    // No art: the console code as the identity mark.
+                    const char *code = consoleCode(generation);
+                    int cw, ch;
+                    framebuffer.measureText(code, cw, ch, TextStyle::Heading);
+                    framebuffer.drawText(stickerX + (stickerW - cw) / 2,
+                                         framebuffer.textYCenteredOn(stickerY + stickerH / 2, TextStyle::Heading), code,
+                                         plastic, TextStyle::Heading);
+                }
+
+                // Name, then what tells two saves apart: the console, and where a loose save lives.
+                const int textW = tileW - 20;
+                const std::string name = fitWidth(framebuffer, title.label, textW, TextStyle::Body);
+                int nw, nh;
+                framebuffer.measureText(name, nw, nh, TextStyle::Body);
+                framebuffer.drawText(tileX + (tileW - nw) / 2, cartY + cartH + 14, name, Pksm::Ink);
+                std::string detail = consoleCode(generation);
+                if (!title.filePath.empty())
+                    detail += std::string(detail.empty() ? "" : " · ") + u->name;
+                detail = fitWidth(framebuffer, detail, textW, TextStyle::Caption);
+                int dw, dh;
+                framebuffer.measureText(detail, dw, dh, TextStyle::Caption);
+                framebuffer.drawText(tileX + (tileW - dw) / 2, cartY + cartH + 14 + nh + 4, detail,
+                                     selected ? Pksm::Ink : Pksm::InkSoft, TextStyle::Caption);
+
+                framebuffer.popTransform();
+                // Only the visible part of a tile is tappable (the clip hides the rest).
+                const int hitX = std::max(tileX, shelfX), hitR = std::min(tileX + tileW, shelfX + shelfW);
+                if (hitR > hitX)
+                    titleRects.push_back({hitX, shelfY, hitR - hitX, tileH, index});
+            }
+            framebuffer.clearClip();
+
+            // Edge chevrons when the row runs on past the screen.
+            if (contentW > shelfW)
+            {
+                const int midY = shelfY + tileH / 2;
+                if (scroll > 1.0f)
+                    framebuffer.drawSymbol(shelfX + 2, midY - 12, "\xE2\x97\x80", Pksm::LogoCyan);
+                if (scroll < maxScroll - 1.0f)
+                    framebuffer.drawSymbol(shelfX + shelfW - 22, midY - 12, "\xE2\x96\xB6", Pksm::LogoCyan);
+            }
+
+            // -- The chosen save in full (the lower screen's "game library" card). ------------------
+            const TitleEntry &title = u->titles[titleIndex];
+            const int infoY = shelfY + tileH + 18;
+            const int infoH = framebuffer.getHeight() - NAV_BAR_HEIGHT - 10 - infoY;
+            framebuffer.pkPanel(16, infoY, screenW - 32, infoH);
+            framebuffer.pkHeaderStrip(26, infoY + 10, screenW - 52, 36, title.name, Pksm::HeaderBlue, false,
+                                      TextStyle::Body);
+            const int generation = titleGeneration(title);
+            std::string where = title.filePath.empty() ? std::string("Nintendo Switch save") : title.filePath;
+            std::string line = std::string(consoleCode(generation));
+            line += std::string(line.empty() ? "" : "  ·  ") + "Trainer " + u->name;
+            const int rowY = infoY + 58;
+            framebuffer.drawText(30, rowY, fitWidth(framebuffer, line, screenW - 80, TextStyle::Body), Pksm::Ink);
+            framebuffer.drawText(30, rowY + framebuffer.lineHeight(TextStyle::Body) + 4,
+                                 fitWidth(framebuffer, where, screenW - 80, TextStyle::Caption), Pksm::InkSoft,
+                                 TextStyle::Caption);
+        }
+
+        if (fileBrowser.active)
+            drawNavBar(framebuffer,
+                       "Up/Down: Move  |  L/R: Page  |  A: Open  |  Y: Search  |  X: All Files  |  B: Up / Close");
+        else if (users.size() > 1)
+            drawNavBar(framebuffer, "A: Open  |  L/R: Trainer  |  Y: Save File  |  +: Exit");
+        else
+            drawNavBar(framebuffer, "A: Open  |  Y: Save File  |  +: Exit");
+
+        if (fileBrowser.active)
+        {
+            PopIn pop(framebuffer, "picker.fileBrowser");
+            Dialogs::drawFileBrowser(fileBrowser, framebuffer, browserTaps);
+        }
     }
 
     void SaveSelectScreen::openFileBrowser()

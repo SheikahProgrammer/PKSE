@@ -117,6 +117,7 @@ namespace UI
             const int dialogX = (framebuffer.getWidth() - dialogWidth) / 2;
             const int dialogY = (framebuffer.getHeight() - h) / 2;
             int centerY = drawDialogFrame(framebuffer, dialogX, dialogY, dialogWidth, h, "Remove Item", Colors::Red);
+            framebuffer.beginTyping(); // the message types out; the buttons follow it
             framebuffer.drawText(dialogX + 28, centerY, "Remove " + itemName + "?", Colors::Text);
             framebuffer.drawText(dialogX + 28, centerY + 34, "It will be taken out of this pocket.", Colors::TextDim,
                                  TextStyle::Caption);
