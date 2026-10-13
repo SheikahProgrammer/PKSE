@@ -260,6 +260,8 @@ namespace UI
             nvgEndFrame(vg);
             frameActive = false;
         }
+        if (!screenshotPath.empty())
+            captureScreenshot();
         if (window)
             SDL_GL_SwapWindow(window);
 
@@ -1806,6 +1808,62 @@ namespace UI
         nvgTranslate(vg, centerX, centerY);
         nvgScale(vg, scale, scale);
         nvgTranslate(vg, -centerX, -centerY);
+    }
+
+    void PKSEFramebuffer::pushTransform(float centerX, float centerY, float scaleX, float scaleY)
+    {
+        if (!ensureFrame())
+            return;
+        nvgSave(vg);
+        nvgTranslate(vg, centerX, centerY);
+        nvgScale(vg, scaleX, scaleY);
+        nvgTranslate(vg, -centerX, -centerY);
+    }
+
+    void PKSEFramebuffer::captureScreenshot()
+    {
+        const std::string path = screenshotPath;
+        screenshotPath.clear();
+        std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 3);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        FILE *f = fopen(path.c_str(), "wb");
+        if (!f)
+        {
+            screenshotStatus = -1;
+            return;
+        }
+        // BMP rows are bottom-up (as GL reads them), BGR, padded to four bytes.
+        const int rowBytes = (width * 3 + 3) & ~3;
+        const uint32_t imageSize = static_cast<uint32_t>(rowBytes) * height, fileSize = 54 + imageSize;
+        unsigned char header[54] = {'B', 'M'};
+        auto put32 = [&](int at, uint32_t v) {
+            for (int i = 0; i < 4; ++i)
+                header[at + i] = static_cast<unsigned char>(v >> (8 * i));
+        };
+        put32(2, fileSize);
+        put32(10, 54);
+        put32(14, 40);
+        put32(18, static_cast<uint32_t>(width));
+        put32(22, static_cast<uint32_t>(height));
+        header[26] = 1;
+        header[28] = 24;
+        put32(34, imageSize);
+        bool ok = fwrite(header, 1, 54, f) == 54;
+        std::vector<unsigned char> row(rowBytes, 0);
+        for (int y = 0; y < height && ok; ++y)
+        {
+            const unsigned char *src = &pixels[static_cast<size_t>(y) * width * 3];
+            for (int x = 0; x < width; ++x)
+            {
+                row[x * 3 + 0] = src[x * 3 + 2];
+                row[x * 3 + 1] = src[x * 3 + 1];
+                row[x * 3 + 2] = src[x * 3 + 0];
+            }
+            ok = fwrite(row.data(), 1, rowBytes, f) == static_cast<size_t>(rowBytes);
+        }
+        ok = (fclose(f) == 0) && ok;
+        screenshotStatus = ok ? 1 : -1;
     }
 
     void PKSEFramebuffer::popTransform()

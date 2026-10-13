@@ -249,6 +249,13 @@ namespace UI
         int pokeparkCardActionSelected = 0;
         std::string pokeparkDialogueText;
         float pokeparkDialogueTimer = 0.0f;
+        int pokeparkBerryFlavor = 2;        // the berry the card's Snack (and ZR) offers: 0 spicy .. 4 sour
+        bool pokeparkPhotoMode = false;     // UI hidden, the park held still
+        bool pokeparkPhotoCapture = false;  // this frame is the one being saved
+        bool pokeparkPhotoPending = false;  // saved last frame; waiting to hear whether it worked
+        std::string pokeparkPhotoName;
+        std::string pokeparkToast;          // "Photo saved" and the like
+        float pokeparkToastTimer = 0.0f;
         void handlePokeparkInput(u64 buttonsDown, const TouchInput &touch);
 
         // Offline Encounter Database & Route Lookup

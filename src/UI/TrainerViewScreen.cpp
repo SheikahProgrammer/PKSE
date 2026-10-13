@@ -3064,6 +3064,27 @@ namespace UI
         auto &mgr = UI::PokeparkManager::instance();
         auto visibleIndices = mgr.getVisibleResidentIndices(mgr.getCurrentHabitat());
         int touchedId = touchedButtonId(touch);
+        const bool haveSelection = !visibleIndices.empty() && pokeparkSelectedResident >= 0 &&
+                                   pokeparkSelectedResident < static_cast<int>(visibleIndices.size());
+        const int selectedIndex = haveSelection ? visibleIndices[pokeparkSelectedResident] : -1;
+
+        // Photo mode: the UI is hidden and the park holds still; A saves exactly what is on screen.
+        if (pokeparkPhotoMode)
+        {
+            if ((buttonsDown & HidNpadButton_A) && !pokeparkPhotoCapture && !pokeparkPhotoPending)
+            {
+                mkdir("sdmc:/PKSE", 0777);
+                mkdir("sdmc:/PKSE/photos", 0777);
+                char name[64];
+                const std::time_t now = std::time(nullptr);
+                std::strftime(name, sizeof(name), "park_%Y%m%d_%H%M%S.bmp", std::localtime(&now));
+                pokeparkPhotoName = name;
+                pokeparkPhotoCapture = true;
+            }
+            if (buttonsDown & (HidNpadButton_B | HidNpadButton_Minus))
+                pokeparkPhotoMode = false;
+            return;
+        }
 
         // 1. Dialogue overlay active
         if (!pokeparkDialogueText.empty())
@@ -3076,7 +3097,7 @@ namespace UI
             return;
         }
 
-        // 2. Adventure Journal modal active
+        // 2. Journal
         if (pokeparkJournalActive)
         {
             if (buttonsDown & (HidNpadButton_B | HidNpadButton_Y))
@@ -3084,28 +3105,19 @@ namespace UI
                 pokeparkJournalActive = false;
                 return;
             }
-            const auto &journal = mgr.getJournal();
-            int maxScroll = std::max(0, static_cast<int>(journal.size()) - 6);
+            const int maxScroll = std::max(0, static_cast<int>(mgr.getJournal().size()) - 1);
             if (buttonsDown & HidNpadButton_Up)
-            {
-                if (pokeparkJournalScroll > 0) pokeparkJournalScroll--;
-            }
+                pokeparkJournalScroll = std::max(0, pokeparkJournalScroll - 1);
             if (buttonsDown & HidNpadButton_Down)
-            {
-                if (pokeparkJournalScroll < maxScroll) pokeparkJournalScroll++;
-            }
+                pokeparkJournalScroll = std::min(maxScroll, pokeparkJournalScroll + 1);
             if (buttonsDown & HidNpadButton_Left)
-            {
                 pokeparkJournalScroll = std::max(0, pokeparkJournalScroll - 5);
-            }
             if (buttonsDown & HidNpadButton_Right)
-            {
                 pokeparkJournalScroll = std::min(maxScroll, pokeparkJournalScroll + 5);
-            }
             return;
         }
 
-        // 3. Resident Profile Card active
+        // 3. Resident profile card: Talk / Play / Snack / Relax / Call, and the berry for Snack.
         if (pokeparkCardActive)
         {
             if (buttonsDown & HidNpadButton_B)
@@ -3113,55 +3125,54 @@ namespace UI
                 pokeparkCardActive = false;
                 return;
             }
-
             int actionTrigger = -1;
             if (buttonsDown & HidNpadButton_Left)
-            {
-                pokeparkCardActionSelected = (pokeparkCardActionSelected - 1 + 4) % 4;
-            }
+                pokeparkCardActionSelected = (pokeparkCardActionSelected - 1 + 5) % 5;
             if (buttonsDown & HidNpadButton_Right)
-            {
-                pokeparkCardActionSelected = (pokeparkCardActionSelected + 1) % 4;
-            }
+                pokeparkCardActionSelected = (pokeparkCardActionSelected + 1) % 5;
+            if (buttonsDown & HidNpadButton_Up)
+                pokeparkBerryFlavor = (pokeparkBerryFlavor + 4) % 5;
+            if (buttonsDown & HidNpadButton_Down)
+                pokeparkBerryFlavor = (pokeparkBerryFlavor + 1) % 5;
             if (buttonsDown & HidNpadButton_A)
-            {
                 actionTrigger = pokeparkCardActionSelected;
-            }
             if (buttonsDown & HidNpadButton_X)
-            {
-                actionTrigger = 1; // Play
-            }
+                actionTrigger = 1;
             if (buttonsDown & HidNpadButton_Y)
-            {
-                actionTrigger = 2; // Snack
-            }
+                actionTrigger = 2;
             if (buttonsDown & (HidNpadButton_R | HidNpadButton_ZR))
-            {
-                actionTrigger = 3; // Relax
-            }
-
-            if (touchedId >= 300 && touchedId <= 303)
-            {
+                actionTrigger = 3;
+            if (buttonsDown & HidNpadButton_ZL)
+                actionTrigger = 4;
+            if (touchedId >= 300 && touchedId <= 304)
                 actionTrigger = touchedId - 300;
-            }
 
-            if (actionTrigger >= 0 && actionTrigger < 4 && !visibleIndices.empty())
+            if (actionTrigger >= 0 && selectedIndex >= 0)
             {
-                if (pokeparkSelectedResident >= 0 && pokeparkSelectedResident < static_cast<int>(visibleIndices.size()))
+                pokeparkCardActionSelected = actionTrigger;
+                switch (actionTrigger)
                 {
-                    const char *actNames[4] = {"talk", "play", "snack", "relax"};
-                    int rIdx = visibleIndices[pokeparkSelectedResident];
-                    pokeparkDialogueText = mgr.interact(rIdx, actNames[actionTrigger]);
-                    pokeparkDialogueTimer = 5.0f;
+                case 0: pokeparkDialogueText = mgr.interact(selectedIndex, "talk"); break;
+                case 1: pokeparkDialogueText = mgr.interact(selectedIndex, "play"); break;
+                case 2:
+                    pokeparkDialogueText =
+                        mgr.feedBerry(selectedIndex, static_cast<UI::ParkFlavor>(std::clamp(pokeparkBerryFlavor, 0, 4)));
+                    break;
+                case 3: pokeparkDialogueText = mgr.interact(selectedIndex, "relax"); break;
+                case 4:
+                    pokeparkDialogueText = mgr.callResident(selectedIndex);
+                    pokeparkCardActive = false; // watch it come over
+                    break;
                 }
+                pokeparkDialogueTimer = 5.0f;
             }
             return;
         }
 
-        // 4. Roaming Habitat View
+        // 4. The habitat.
         if (touchedId >= 200 && touchedId < 250)
         {
-            int vi = touchedId - 200;
+            const int vi = touchedId - 200;
             if (vi >= 0 && vi < static_cast<int>(visibleIndices.size()))
             {
                 if (pokeparkSelectedResident == vi)
@@ -3170,10 +3181,14 @@ namespace UI
                     pokeparkCardActionSelected = 0;
                 }
                 else
-                {
                     pokeparkSelectedResident = vi;
-                }
             }
+            return;
+        }
+        if (touchedId == 270)
+        {
+            // Open ground: throw a ball there (scene coordinates are the panel's).
+            mgr.throwToy(UI::ParkToyKind::Ball, static_cast<float>(touch.x() - 32), static_cast<float>(touch.y() - 96));
             return;
         }
         if (touchedId == 250 || (buttonsDown & HidNpadButton_L))
@@ -3194,21 +3209,39 @@ namespace UI
             pokeparkJournalScroll = 0;
             return;
         }
-
-        if (buttonsDown & HidNpadButton_Left)
+        if (buttonsDown & HidNpadButton_Minus)
         {
-            if (!visibleIndices.empty())
-                pokeparkSelectedResident = (pokeparkSelectedResident - 1 + static_cast<int>(visibleIndices.size())) % static_cast<int>(visibleIndices.size());
+            pokeparkPhotoMode = true;
+            return;
         }
-        if (buttonsDown & HidNpadButton_Right)
+        if (!visibleIndices.empty())
         {
-            if (!visibleIndices.empty())
+            if (buttonsDown & HidNpadButton_Left)
+                pokeparkSelectedResident = (pokeparkSelectedResident - 1 + static_cast<int>(visibleIndices.size())) %
+                                           static_cast<int>(visibleIndices.size());
+            if (buttonsDown & HidNpadButton_Right)
                 pokeparkSelectedResident = (pokeparkSelectedResident + 1) % static_cast<int>(visibleIndices.size());
+        }
+        if (selectedIndex >= 0 && (buttonsDown & (HidNpadButton_ZL | HidNpadButton_ZR)))
+        {
+            // Throw near the selected resident, a little in front of it.
+            const auto &res = mgr.getResidents()[selectedIndex];
+            const float x = res.x + (res.facingLeft ? -1.0f : 1.0f) * 140.0f, y = res.y + 20.0f;
+            if (buttonsDown & HidNpadButton_ZL)
+                mgr.throwToy(UI::ParkToyKind::Ball, x, y);
+            else
+                mgr.throwToy(UI::ParkToyKind::Berry, x, y, static_cast<UI::ParkFlavor>(std::clamp(pokeparkBerryFlavor, 0, 4)));
+            return;
+        }
+        if (selectedIndex >= 0 && (buttonsDown & HidNpadButton_Up))
+        {
+            pokeparkDialogueText = mgr.callResident(selectedIndex);
+            return;
         }
 
         if (buttonsDown & HidNpadButton_A)
         {
-            if (!visibleIndices.empty())
+            if (selectedIndex >= 0)
             {
                 pokeparkCardActive = true;
                 pokeparkCardActionSelected = 0;
@@ -3216,16 +3249,15 @@ namespace UI
         }
         else if (buttonsDown & HidNpadButton_X)
         {
-            // Quick Talk
-            if (!visibleIndices.empty() && pokeparkSelectedResident >= 0 && pokeparkSelectedResident < static_cast<int>(visibleIndices.size()))
+            if (selectedIndex >= 0)
             {
-                int rIdx = visibleIndices[pokeparkSelectedResident];
-                pokeparkDialogueText = mgr.interact(rIdx, "talk");
+                pokeparkDialogueText = mgr.interact(selectedIndex, "talk");
                 pokeparkDialogueTimer = 5.0f;
             }
         }
         else if (buttonsDown & HidNpadButton_B)
         {
+            mgr.saveState(); // needs and bonds as they are right now
             detailViewActive = false;
         }
     }

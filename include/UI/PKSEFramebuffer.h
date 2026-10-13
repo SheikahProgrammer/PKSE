@@ -241,7 +241,20 @@ namespace UI
 
         // Scale everything drawn until popTransform() about (centerX, centerY). Pairs must nest.
         void pushScale(float centerX, float centerY, float scale);
+        // The same with separate axes: (-1, 1) mirrors, (1.1, 0.9) squashes. Pairs with popTransform().
+        void pushTransform(float centerX, float centerY, float scaleX, float scaleY);
         void popTransform();
+
+        // Saves the NEXT presented frame as a 24-bit BMP at `path` (read back just before the swap,
+        // so it is exactly what was on screen). screenshotResult() then reports 1 for saved, -1 for
+        // a failed write, and 0 while none has been taken since the last call.
+        void requestScreenshot(const std::string &path) { screenshotPath = path; }
+        int screenshotResult()
+        {
+            const int result = screenshotStatus;
+            screenshotStatus = 0;
+            return result;
+        }
 
         // Frame timing (updated each flush()). Use these to drive animation without
         // every screen having to read a clock. deltaSeconds = time since last frame.
@@ -320,6 +333,9 @@ namespace UI
             int typed = 0;         // characters drawn (or due) so far this frame
             int budget = 0;        // characters revealed by now
         };
+        std::string screenshotPath;
+        int screenshotStatus = 0;
+        void captureScreenshot();
         bool typingBusyThisFrame = false, typingBusyLastFrame = false, skipTypingRequested = false;
         // How many of `text`'s bytes the typewriter lets through; advances the scope's count.
         size_t typedBytes(const std::string &text);
