@@ -373,6 +373,10 @@ namespace UI
         void removeResident(int residentIndex);
         void addResidentFromSave(int box, int slot, const Trainer::Trainer &trainer);
         // The roster picker: who lives in the park. `id` is "party:N" or "box:B:S".
+        /// A resident's id: the game it is from plus the Pokemon itself (species, PID, trainer id), NOT
+        /// the slot it sits in -- slots change when you move or release things, and a different Pokemon
+        /// in the same slot must not count as the one living in the park.
+        static std::string residentKey(const std::string &gameKey, const Pokemon::Pokemon &mon);
         bool hasResident(const std::string &id) const;
         /// Adds `mon` as a resident. False when the park is full or it already lives there.
         bool addResident(const std::string &id, const std::string &source, const Pokemon::Pokemon &mon,
@@ -407,8 +411,6 @@ namespace UI
         std::map<std::string, ParkRelationship> relationships;
         uint64_t lastSimulationTime = 0;
         float realTimeUpdateClock = 0.0f;
-        Trainer::Trainer *activeTrainer = nullptr;
-        Trainer::Bank *activeBank = nullptr;
 
         // The living world.
         std::vector<ParkToy> toys;

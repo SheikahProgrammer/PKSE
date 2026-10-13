@@ -54,6 +54,11 @@ namespace Legality
      * @param scopeFilter -1 = All Games, 0 = Current Save Game only, 1..9 = Specific Gen only
      * @param currentGame The game version of the current active save
      */
+    /// The same answer, remembered: the lookup screen asks every frame, and the full query walks every
+    /// game's table and builds names. The reference stays valid until the next call with a different key.
+    const EncounterSpeciesResult &queryEncountersCached(uint16_t speciesId, uint8_t formId, int scopeFilter,
+                                                        Enums::GameVersion currentGame);
+
     EncounterSpeciesResult queryEncountersForSpecies(uint16_t speciesId, uint8_t formId = 0, int scopeFilter = -1, Enums::GameVersion currentGame = Enums::GameVersion::Any);
 
     /**

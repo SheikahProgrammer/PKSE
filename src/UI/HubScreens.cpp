@@ -248,7 +248,6 @@ namespace UI
     {
         framebuffer.clear(Colors::Background);
         drawTitleBar(framebuffer, "Poképark", "Pokémon from all your games");
-        PopIn pop(framebuffer, "hub.pokepark");
         Panels::drawPokepark(view, framebuffer);
     }
 

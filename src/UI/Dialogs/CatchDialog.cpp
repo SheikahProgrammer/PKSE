@@ -77,6 +77,16 @@ namespace UI
                 fb.drawSpriteFit(px + (pw - 150) / 2, listTop, 150, 150, sprite->width, sprite->height, sprite->data,
                                  sprite->channels);
             int ty = listTop + 166;
+            if (chooser.pickVersion)
+            {
+                std::string game = "?";
+                for (const auto &choice : Legality::gameChoicesForGroup(screen.trainer.getGameGroup()))
+                    if (choice.version == chooser.version)
+                        game = choice.name;
+                fb.drawText(px, ty, "Game", Colors::TextDim, TextStyle::Caption);
+                fb.drawText(px + 120, ty - 2, game + "  (Y)", Colors::Accent, TextStyle::Body);
+                ty += 34;
+            }
             auto row = [&](const std::string &label, const std::string &value, Color color = Colors::Text) {
                 fb.drawText(px, ty, label, Colors::TextDim, TextStyle::Caption);
                 fb.drawText(px + 120, ty - 2, value, color, TextStyle::Body);
@@ -86,13 +96,14 @@ namespace UI
             {
                 const auto &o = chooser.options[chooser.selected];
                 const bool hatched = o.origin == Legality::CatchOption::Origin::Hatched;
-                const uint8_t now = std::max(chooser.metLevel, o.minLevel);
+                const uint8_t now = std::max<uint8_t>(std::max(chooser.metLevel, o.minLevel), chooser.level);
                 if (hatched)
                     row("Hatched at", "Lv. " + std::to_string(o.minMetLevel));
                 else
                     row("Met at", (chooser.metLevel > o.minMetLevel ? "< " : "  ") + std::string("Lv. ") +
                                       std::to_string(chooser.metLevel) + (chooser.metLevel < o.maxMetLevel ? " >" : ""));
-                row("Level now", "Lv. " + std::to_string(now) + (now > chooser.metLevel ? "  (to evolve)" : ""));
+                row("Level now", "Lv. " + std::to_string(now) + "  (L/R)" +
+                                     (o.origin == Legality::CatchOption::Origin::Evolved && now == o.minLevel ? "  evolved" : ""));
                 row("Ball", !hatched && o.row.fixedBall ? std::string("Its own (fixed)") : std::string("Poké Ball"));
                 const bool shinyNow = o.shinyForced || (chooser.shiny && o.shinyAllowed);
                 row("Shiny", !o.shinyAllowed ? "Never (locked)" : o.shinyForced ? "Always" : shinyNow ? "Yes  (X)" : "No  (X)",

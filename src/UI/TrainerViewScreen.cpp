@@ -1015,7 +1015,7 @@ namespace UI
         if (fileBrowser.active) // the PKSM bank picker -- no search here, unlike the save picker's
             return "Up/Down: Move  |  L/R: Page  |  A: Open  |  X: All Files  |  B: Up / Close";
         if (catchChooser.active)
-            return "Up/Down: How  |  Left/Right: Met level  |  ZL/ZR: Lowest/Highest  |  X: Shiny  |  A: Done  |  B: Back";
+            return "Up/Down: How  |  Left/Right: Met level  |  L/R: Level now  |  X: Shiny  |  Y: Game  |  A: Done  |  B: Back";
         if (pickerActive)
             return "Up/Down: Move  |  L/R: Page  |  A: Select  |  Y: Search  |  B: Cancel";
         if (statEdit.dialogActive)
@@ -2942,7 +2942,6 @@ namespace UI
         const int slots = pokeparkRosterBox < 0 ? 6 : static_cast<int>(trainer.getSlotsPerBox());
         const int cols = pokeparkRosterBox < 0 ? 3 : boxGridColumns(slots);
         const int maxRow = static_cast<int>(UI::PokeparkManager::MAX_RESIDENTS) - 1;
-        const std::string game = resumeKey() + "#";
 
         auto candidate = [&](int box, int slot) -> const Pokemon::Pokemon * {
             if (box < 0)
@@ -2952,7 +2951,8 @@ namespace UI
             return trainer.boxes[box][slot].get();
         };
         auto idOf = [&](int box, int slot) {
-            return game + (box < 0 ? "party:" + std::to_string(slot) : "box:" + std::to_string(box) + ":" + std::to_string(slot));
+            const Pokemon::Pokemon *mon = candidate(box, slot);
+            return mon ? UI::PokeparkManager::residentKey(resumeKey(), *mon) : std::string();
         };
         auto sourceOf = [&](int box, int slot) {
             return titleName + "  ·  " +
@@ -3072,7 +3072,11 @@ namespace UI
         catchChooser.active = true;
         catchChooser.species = species;
         catchChooser.form = forms.empty() ? 0 : static_cast<uint8_t>(forms.front());
-        catchChooser.options = Legality::catchOptions(trainer, saveOriginVersion(trainer, titleId), species, catchChooser.form);
+        catchChooser.version = saveOriginVersion(trainer, titleId);
+        // A loose save (an emulator file) says which FORMAT it is but not which game: let the user say,
+        // since version exclusives and the origin game depend on it.
+        catchChooser.pickVersion = titleId == 0 && Legality::gameChoicesForGroup(trainer.getGameGroup()).size() > 1;
+        catchChooser.options = Legality::catchOptions(trainer, catchChooser.version, species, catchChooser.form);
         catchChooser.pane = pane;
         catchChooser.box = box;
         catchChooser.slot = slot;
@@ -3101,12 +3105,36 @@ namespace UI
             catchChooser.selected = (catchChooser.selected + rows - 1) % rows;
         if (buttonsDown & HidNpadButton_Down)
             catchChooser.selected = (catchChooser.selected + 1) % rows;
+        if (catchChooser.pickVersion && (buttonsDown & HidNpadButton_Y))
+        {
+            const auto games = Legality::gameChoicesForGroup(trainer.getGameGroup());
+            size_t at = 0;
+            for (size_t i = 0; i < games.size(); ++i)
+                if (games[i].version == catchChooser.version)
+                    at = i;
+            catchChooser.version = games[(at + 1) % games.size()].version;
+            catchChooser.options = Legality::catchOptions(trainer, catchChooser.version, catchChooser.species, catchChooser.form);
+            catchChooser.selected = 0;
+            catchChooser.level = 0;
+            catchChooser.metLevel = catchChooser.options.empty() ? 1 : catchChooser.options[0].minMetLevel;
+            return;
+        }
         const bool custom = catchChooser.selected >= static_cast<int>(catchChooser.options.size());
         if (!custom)
         {
             const Legality::CatchOption &option = catchChooser.options[catchChooser.selected];
             if (catchChooser.selected != before)
+            {
                 catchChooser.metLevel = option.minMetLevel;
+                catchChooser.level = 0;
+            }
+            // The level it is now (L/R): never below where it was met or the evolution floor.
+            const uint8_t lowest = std::max(catchChooser.metLevel, option.minLevel);
+            uint8_t shown = std::max(catchChooser.level, lowest);
+            if ((buttonsDown & HidNpadButton_L) && shown > lowest)
+                catchChooser.level = shown - 1;
+            if ((buttonsDown & HidNpadButton_R) && shown < 100)
+                catchChooser.level = shown + 1;
             // The met level, within what the encounter allows (ZL/ZR jump to the ends).
             if ((buttonsDown & HidNpadButton_Left) && catchChooser.metLevel > option.minMetLevel)
                 --catchChooser.metLevel;
@@ -3125,7 +3153,17 @@ namespace UI
 
     void TrainerViewScreen::commitCatch()
     {
-        const uint8_t version = saveOriginVersion(trainer, titleId);
+        const uint8_t version = catchChooser.version;
+        // Never over a Pokemon already there.
+        {
+            const auto &there = storageSlot(catchChooser.pane, catchChooser.box, catchChooser.slot);
+            if (there && there->speciesID() != 0)
+            {
+                postStatus("That slot is taken.", 240);
+                catchChooser.active = false;
+                return;
+            }
+        }
         auto mon = buildDefaultMon(trainer, catchChooser.species, version);
         if (!mon)
         {
@@ -3139,7 +3177,7 @@ namespace UI
         {
             const Legality::CatchOption &option = catchChooser.options[catchChooser.selected];
             if (!Legality::applyCatch(*mon, trainer, version, catchChooser.species, catchChooser.form, option,
-                                      catchChooser.metLevel, option.minLevel, catchChooser.shiny))
+                                      catchChooser.metLevel, std::max(catchChooser.level, option.minLevel), catchChooser.shiny))
             {
                 postStatus("Couldn't roll a legal one for that (try another met level, or not shiny).", 300);
                 return; // chooser stays open
@@ -3225,7 +3263,7 @@ namespace UI
         else if (encounterLookupScope >= 2 && encounterLookupScope <= 10)
             queryScope = encounterLookupScope - 1;
 
-        auto result = Legality::queryEncountersForSpecies(encounterLookupSpecies, encounterLookupForm, queryScope, trainer.getGameGroup());
+        const auto &result = Legality::queryEncountersCached(encounterLookupSpecies, encounterLookupForm, queryScope, trainer.getGameGroup());
         const int routeCount = static_cast<int>(result.routes.size());
 
         // Touch Row: 4100..4104

@@ -13,6 +13,7 @@
 #include "Pokemon/LearnsetTable.h"
 #include "Pokemon/LevelUpTable.h"
 #include "Pokemon/PersonalInfoTable.h"
+#include "Pokemon/PersonalRecord.h"
 #include "Pokemon/Pokemon.h"
 #include "Trainer/Trainer.h"
 #include "Utils/HelperUtilities.h"
@@ -83,7 +84,31 @@ namespace Legality
         // The species itself, then each earlier stage (nearest first).
         uint16_t chain[8];
         uint8_t forms[8];
-        const int chainLength = Pokemon::getPreEvolutionChain(group, species, form, chain, forms, 7);
+        int chainLength = Pokemon::getPreEvolutionChain(group, species, form, chain, forms, 7);
+        // Gen 6+ records who last handled a Pokemon, so one that evolved by trade without a handling
+        // trainer does not exist there. A chain with a trade link in it is cut short at that link: the
+        // stages before it are not offered (use the editor's Trade Evolve on the earlier stage, which
+        // stamps a proper handler). Gen 3-5 keep no such record, so a trade evolution leaves no trace.
+        if (generationOf(group) >= 6)
+        {
+            auto isTradeStep = [&](uint16_t from, uint8_t fromForm, uint16_t to) {
+                Pokemon::TradeEvolution trades[Pokemon::TRADE_EVOLUTIONS_MAX_PER_SPECIES];
+                const int n = Pokemon::getTradeEvolutions(group, from, fromForm, trades, Pokemon::TRADE_EVOLUTIONS_MAX_PER_SPECIES);
+                for (int i = 0; i < n; ++i)
+                    if (trades[i].destinationSpeciesId == to)
+                        return true;
+                return false;
+            };
+            for (int i = 0; i < chainLength; ++i)
+            {
+                const uint16_t next = i == 0 ? species : chain[i - 1];
+                if (isTradeStep(chain[i], forms[i], next))
+                {
+                    chainLength = i; // this stage and everything before it are out
+                    break;
+                }
+            }
+        }
         struct Stage
         {
             uint16_t species;
@@ -154,7 +179,7 @@ namespace Legality
         const uint16_t base = chainLength > 0 ? chain[chainLength - 1] : species;
         const bool breedable = table->breedable && table->egg.hasBreeding && base < table->speciesIndexLength &&
                                (table->breedable[base >> 3] & (1u << (base & 7)));
-        if (breedable && generationOf(group) >= 4)
+        if (breedable && generationOf(group) >= 4 && table->egg.hatchLocation != 0)
         {
             CatchOption egg;
             egg.origin = CatchOption::Origin::Hatched;
@@ -163,9 +188,9 @@ namespace Legality
             egg.minMetLevel = egg.maxMetLevel = std::max<uint8_t>(1, table->egg.hatchLevel);
             const uint8_t floor = species != base ? Pokemon::getEvolutionLevelFloor(group, species, form, chainLength) : 0;
             egg.minLevel = std::max<uint8_t>(std::max(egg.minMetLevel, table->egg.hatchCurrentLevel), floor);
-            egg.metLocation = table->egg.hatchLocation ? table->egg.hatchLocation
-                              : table->egg.hatchLocationCount ? table->egg.hatchLocations[0]
-                                                              : 0;
+            // The location the game itself stamps on a hatched egg (the mask table is a permitted SET,
+            // not a list of ids, so it is never read as one).
+            egg.metLocation = table->egg.hatchLocation;
             egg.title = "Hatched from an Egg";
             egg.method = "Egg";
             egg.note = std::string("Hatched at ") + encounterLocationName(version, egg.metLocation) +
@@ -189,7 +214,19 @@ namespace Legality
     {
         const Enums::GameVersion group = trainer.getGameGroup();
         const int generation = generationOf(group);
-        const Pokemon::PersonalInfo &pi = Pokemon::getPersonalInfo(species, form);
+        // Gender ratio and base friendship as THIS game's own table has them (a Gen 3 Pokemon's
+        // friendship is not the modern one); the modern row only fills in for a group with no table.
+        const Pokemon::PersonalInfo &modern = Pokemon::getPersonalInfo(species, form);
+        const Pokemon::PersonalRecord &own = Pokemon::getPersonalRecord(group, species, form);
+        struct
+        {
+            uint8_t genderRatio, baseFriendship;
+        } pi = {modern.genderRatio, modern.baseFriendship};
+        if (own.hp + own.atk + own.def + own.spe + own.spa + own.spd > 0)
+        {
+            pi.genderRatio = own.genderRatio;
+            pi.baseFriendship = own.baseFriendship;
+        }
         const Pokemon::AbilitySlots slots = Pokemon::getAbilitySlots(species, form, group);
         const bool hatched = option.origin == CatchOption::Origin::Hatched;
         const bool wild = !hatched && option.row.kind == ENCOUNTER_KIND_WILD;
@@ -213,6 +250,13 @@ namespace Legality
             return fixedGender == ENCOUNTER_GENDER_ANY || genderFromPid(candidate, pi.genderRatio) == fixedGender;
         };
 
+        // Gen 3 Unown: the letter is not stored, it IS the PID (the form setter is a no-op there), so
+        // the PID has to be one that spells the letter that was asked for.
+        const bool gen3Unown = generation == 3 && species == 201;
+        auto unownLetter = [](uint32_t value) {
+            return static_cast<int>((((value & 0x03000000) >> 18) | ((value & 0x00030000) >> 12) |
+                                     ((value & 0x00000300) >> 6) | (value & 3)) % 28);
+        };
         if ((generation == 3 || generation == 4) && !hatched)
         {
             // Gen 3/4: nature, gender, ability and IVs all come out of one LCRNG chain. Wild slots run
@@ -250,6 +294,8 @@ namespace Legality
                 }
                 if (!genderOk(candidate) || shinyFromPid(candidate, trainer.ID32, generation) != shiny)
                     continue;
+                if (gen3Unown && unownLetter(candidate) != form)
+                    continue;
                 const uint16_t iv1 = rng.next(), iv2 = rng.next();
                 ivs[0] = iv1 & 31;
                 ivs[1] = (iv1 >> 5) & 31;
@@ -266,7 +312,8 @@ namespace Legality
         {
             // Gen 5+: PID and IVs are independent. Gen 5 still reads gender from the PID's low byte and
             // the ability from bit 16, and keeps PID bit 31 tied to the trainer's id parity.
-            const int abilitySlot = static_cast<int>(Utils::rand32() & 1);
+            const bool oneAbility = slots.slot[1] == 0 || slots.slot[1] == slots.slot[0];
+            const int abilitySlot = oneAbility ? 0 : static_cast<int>(Utils::rand32() & 1);
             for (int attempt = 0; attempt < 2500000; ++attempt)
             {
                 uint32_t candidate = Utils::rand32();
@@ -322,8 +369,11 @@ namespace Legality
                              : fixedGender != ENCOUNTER_GENDER_ANY ? fixedGender
                                                                    : genderFromPid(Utils::rand32(), pi.genderRatio);
             pokemon.setGender(gender);
-            const int slot = generation == 5 ? static_cast<int>((pid >> 16) & 1) : static_cast<int>(Utils::rand32() & 1);
-            const uint16_t ability = slots.slot[slot] ? slots.slot[slot] : slots.slot[0];
+            int slot = generation == 5 ? static_cast<int>((pid >> 16) & 1)
+                                       : ((slots.slot[1] == 0 || slots.slot[1] == slots.slot[0]) ? 0 : static_cast<int>(Utils::rand32() & 1));
+            if (slots.slot[slot] == 0)
+                slot = 0;
+            const uint16_t ability = slots.slot[slot];
             pokemon.setAbility(ability);
             pokemon.setAbilityNumber(static_cast<uint8_t>(1 << slot));
             if (generation >= 6)
@@ -369,7 +419,7 @@ namespace Legality
         }
 
         // Moves: what one of this level knows by levelling (any level-up move at or below its level is
-        // legal to know), falling back to the first learnable move where PKSE has no level-up table.
+        // legal to know). Where PKSE has no level-up table the creator's first learnable move is kept.
         uint16_t moves[4] = {0, 0, 0, 0};
         int moveCount = Pokemon::getWildMoveset(group, species, form, level, moves);
         if (moveCount == 0)

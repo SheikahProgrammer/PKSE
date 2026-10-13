@@ -413,6 +413,10 @@ namespace UI
     {
         if (residentIndex >= 0 && residentIndex < static_cast<int>(residents.size()))
         {
+            // Its friendships and rivalries go with it, so whoever takes the id next starts fresh.
+            const std::string gone = residents[residentIndex].id;
+            for (auto it = relationships.begin(); it != relationships.end();)
+                it = (it->second.firstId == gone || it->second.secondId == gone) ? relationships.erase(it) : std::next(it);
             residents.erase(residents.begin() + residentIndex);
             for (auto &r : residents)
                 r.partner = r.leader = r.toy = -1; // indices shifted
@@ -437,6 +441,14 @@ namespace UI
         pickSpot(res, res.x, res.y);
         residents.push_back(res);
         saveState();
+    }
+
+    std::string PokeparkManager::residentKey(const std::string &gameKey, const Pokemon::Pokemon &mon)
+    {
+        char tail[48];
+        std::snprintf(tail, sizeof(tail), "#%u:%08X:%08X", static_cast<unsigned>(mon.speciesID()),
+                      static_cast<unsigned>(mon.pid()), static_cast<unsigned>(mon.id32()));
+        return gameKey + tail;
     }
 
     bool PokeparkManager::hasResident(const std::string &id) const
@@ -483,32 +495,44 @@ namespace UI
         bool changed = false;
         for (auto &res : residents)
         {
-            if (res.id.find('#') != std::string::npos)
-                continue; // already belongs to a game
+            // Older ids name a SLOT: "party:N" / "box:B:S", bare (before the park was shared) or after
+            // "<game>#". Whichever game it names, the Pokemon sitting there now must still be the same
+            // species; then the resident is re-keyed to that Pokemon and its game is named.
+            std::string local = res.id;
+            const size_t hash = res.id.find('#');
+            if (hash != std::string::npos)
+            {
+                if (res.id.compare(0, hash, gameKey) != 0)
+                    continue; // another game's
+                local = res.id.substr(hash + 1);
+            }
             const Pokemon::Pokemon *mon = nullptr;
             std::string where;
             int box = -1, slot = -1;
-            if (std::sscanf(res.id.c_str(), "party:%d", &slot) == 1)
+            if (std::sscanf(local.c_str(), "party:%d", &slot) == 1)
             {
                 if (slot >= 0 && slot < static_cast<int>(trainer.party.size()))
                     mon = trainer.party[slot].get();
                 where = "Party " + std::to_string(slot + 1);
             }
-            else if (std::sscanf(res.id.c_str(), "box:%d:%d", &box, &slot) == 2)
+            else if (std::sscanf(local.c_str(), "box:%d:%d", &box, &slot) == 2)
             {
                 if (box >= 0 && box < static_cast<int>(trainer.boxes.size()) && slot >= 0 &&
                     slot < static_cast<int>(trainer.getSlotsPerBox()))
                     mon = trainer.boxes[box][slot].get();
                 where = "Box " + std::to_string(box + 1) + ", slot " + std::to_string(slot + 1);
             }
+            else
+                continue; // already keyed to a Pokemon
             if (!mon || mon->speciesID() != res.species)
                 continue;
-            const std::string newId = gameKey + "#" + res.id;
-            // Its relationships move with it.
-            std::map<std::string, ParkRelationship> moved;
-            for (auto &[key, rel] : relationships)
+            const std::string newId = residentKey(gameKey, *mon);
+            if (hasResident(newId))
+                continue; // the same Pokemon is already in the park under its proper key
+            std::map<std::string, ParkRelationship> moved; // its relationships move with it
+            for (auto &entry : relationships)
             {
-                ParkRelationship copy = rel;
+                ParkRelationship copy = entry.second;
                 if (copy.firstId == res.id)
                     copy.firstId = newId;
                 if (copy.secondId == res.id)
@@ -536,8 +560,8 @@ namespace UI
 
     void PokeparkManager::initialize(Trainer::Trainer *trainer, Trainer::Bank *bank)
     {
-        activeTrainer = trainer;
-        activeBank = bank;
+        (void)trainer;
+        (void)bank; // the park is shared by every game: it keeps no pointer into any one save
 
         // The park is shared by every game, and each game chooses who it sends: nobody moves in
         // just because a save was opened.

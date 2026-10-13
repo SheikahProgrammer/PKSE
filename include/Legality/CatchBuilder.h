@@ -62,6 +62,15 @@ namespace Legality
     bool applyCatch(Pokemon::Pokemon &pokemon, const Trainer::Trainer &trainer, uint8_t version, uint16_t species,
                     uint8_t form, const CatchOption &option, uint8_t metLevel, uint8_t level, bool shiny);
 
+    /// The exact games a save format covers (Ruby / Sapphire / Emerald for a Hoenn file), for saves
+    /// that do not say which one they are (a loose emulator file).
+    struct GameChoice
+    {
+        uint8_t version;
+        std::string name;
+    };
+    std::vector<GameChoice> gameChoicesForGroup(Enums::GameVersion group);
+
     /// The location's name in `version`'s own location table (sentinels named too).
     std::string encounterLocationName(uint8_t version, uint16_t location);
 }

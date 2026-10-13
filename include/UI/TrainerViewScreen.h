@@ -619,6 +619,9 @@ namespace UI
             std::vector<Legality::CatchOption> options; // plus one trailing "Custom" row in the UI
             int selected = 0;
             uint8_t metLevel = 1;
+            uint8_t level = 0;     // 0 = the lowest legal level now; L/R raise it
+            uint8_t version = 0;   // the exact game it was caught in
+            bool pickVersion = false; // a loose save does not name its game: Y chooses
             bool shiny = false;
             int pane = 0, box = 0, slot = 0; // where it goes
             bool openEditor = true;          // the creator opens the editor after; the lookup does not

@@ -135,7 +135,7 @@ namespace UI
             else if (screen.encounterLookupScope >= 2 && screen.encounterLookupScope <= 10)
                 queryScope = screen.encounterLookupScope - 1; // Gen 1..9
 
-            auto result = Legality::queryEncountersForSpecies(speciesId, formId, queryScope, screen.trainer.getGameGroup());
+            const auto &result = Legality::queryEncountersCached(speciesId, formId, queryScope, screen.trainer.getGameGroup());
 
             // Tab rendering
             int tabX = cardX + 24;

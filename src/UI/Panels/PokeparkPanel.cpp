@@ -690,8 +690,8 @@ namespace UI
         // and account, or a loose save's path) as well as where in it the Pokémon sits.
         static std::string rosterId(TrainerViewScreen &screen, int box, int slot)
         {
-            return screen.resumeKey() + "#" +
-                   (box < 0 ? "party:" + std::to_string(slot) : "box:" + std::to_string(box) + ":" + std::to_string(slot));
+            const ::Pokemon::Pokemon *mon = rosterCandidate(screen, box, slot);
+            return mon ? PokeparkManager::residentKey(screen.resumeKey(), *mon) : std::string();
         }
 
         void drawParkRoster(TrainerViewScreen &screen, PKSEFramebuffer &fb)

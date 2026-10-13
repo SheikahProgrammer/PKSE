@@ -450,4 +450,32 @@ namespace Legality
         pokemon->refreshChecksum();
         return pokemon;
     }
+
+    std::vector<GameChoice> gameChoicesForGroup(Enums::GameVersion group)
+    {
+        std::vector<GameChoice> out;
+        for (const GameMetadata &game : MAINLINE_GAMES)
+            if (game.group == group)
+                out.push_back({static_cast<uint8_t>(game.version), game.name});
+        return out;
+    }
+
+    const EncounterSpeciesResult &queryEncountersCached(uint16_t speciesId, uint8_t formId, int scopeFilter,
+                                                        Enums::GameVersion currentGame)
+    {
+        static EncounterSpeciesResult cached;
+        static uint16_t cachedSpecies = 0xFFFF;
+        static uint8_t cachedForm = 0;
+        static int cachedScope = -2;
+        static Enums::GameVersion cachedGame = Enums::GameVersion::Invalid;
+        if (cachedSpecies != speciesId || cachedForm != formId || cachedScope != scopeFilter || cachedGame != currentGame)
+        {
+            cached = queryEncountersForSpecies(speciesId, formId, scopeFilter, currentGame);
+            cachedSpecies = speciesId;
+            cachedForm = formId;
+            cachedScope = scopeFilter;
+            cachedGame = currentGame;
+        }
+        return cached;
+    }
 }
