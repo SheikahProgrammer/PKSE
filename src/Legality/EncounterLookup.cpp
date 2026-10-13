@@ -7,6 +7,7 @@
 
 #include "Legality/EncounterLookup.h"
 #include "Legality/EncounterTable.h"
+#include "Legality/CatchBuilder.h"
 #include "Names/LocationNames.h"
 #include "Names/FormNames.h"
 #include "Names/MoveNames.h"
@@ -91,7 +92,7 @@ namespace Legality
         {Enums::GameVersion::ZA, Enums::GameVersion::ZA, "Legends: Z-A", 9}
     };
 
-    static std::string resolveLocationName(uint8_t originVer, uint16_t locId)
+    std::string encounterLocationName(uint8_t originVer, uint16_t locId)
     {
         switch (locId)
         {
@@ -211,7 +212,7 @@ namespace Legality
                 entry.gameName = game.name;
                 entry.generation = game.generation;
                 entry.locationId = row.location;
-                entry.locationName = resolveLocationName(static_cast<uint8_t>(game.version), row.location);
+                entry.locationName = encounterLocationName(static_cast<uint8_t>(game.version), row.location);
                 entry.kind = static_cast<EncounterKind>(row.kind);
                 entry.kindStr = getEncounterMethodDescription(entry.kind, row.location, row.flags);
                 entry.minLevel = row.levelMin;

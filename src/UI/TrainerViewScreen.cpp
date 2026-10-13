@@ -15,6 +15,7 @@
 #include "Names/LocationNames.h" // getLocationTable -> the Met Location picker's per-game list
 #include "Names/FormNames.h"     // getDisplayName -> variant prefix in the "can't go in this game" toast
 #include "Enums/Ball.h"          // getBallList -> the per-game Ball picker
+#include "UI/Dialogs/CatchDialog.h"
 #include "Legality/Legality.h"   // analyze() -> gate the details-page Legality (R) button when clean
 
 #include "Globals.h"
@@ -1005,6 +1006,8 @@ namespace UI
             return "A: Import  |  B: Cancel";
         if (fileBrowser.active) // the PKSM bank picker -- no search here, unlike the save picker's
             return "Up/Down: Move  |  L/R: Page  |  A: Open  |  X: All Files  |  B: Up / Close";
+        if (catchChooser.active)
+            return "Up/Down: How  |  Left/Right: Met level  |  ZL/ZR: Lowest/Highest  |  X: Shiny  |  A: Done  |  B: Back";
         if (pickerActive)
             return "Up/Down: Move  |  L/R: Page  |  A: Select  |  Y: Search  |  B: Cancel";
         if (statEdit.dialogActive)
@@ -3054,6 +3057,109 @@ namespace UI
         }
     }
 
+    void TrainerViewScreen::openCatchChooser(uint16_t species, int pane, int box, int slot, bool openEditor)
+    {
+        const std::vector<int> forms = selectableForms(species, trainer.getGameGroup());
+        catchChooser = CatchChooserState{};
+        catchChooser.active = true;
+        catchChooser.species = species;
+        catchChooser.form = forms.empty() ? 0 : static_cast<uint8_t>(forms.front());
+        catchChooser.options = Legality::catchOptions(trainer, saveOriginVersion(trainer, titleId), species, catchChooser.form);
+        catchChooser.pane = pane;
+        catchChooser.box = box;
+        catchChooser.slot = slot;
+        catchChooser.openEditor = openEditor;
+        if (!catchChooser.options.empty())
+            catchChooser.metLevel = catchChooser.options[0].minMetLevel;
+    }
+
+    void TrainerViewScreen::handleCatchChooserInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        const int rows = static_cast<int>(catchChooser.options.size()) + 1; // + "Custom"
+        const int tapped = touchedButtonId(touch);
+        if (tapped >= 7000 && tapped < 7000 + rows)
+        {
+            if (catchChooser.selected == tapped - 7000)
+                buttonsDown |= HidNpadButton_A;
+            catchChooser.selected = tapped - 7000;
+        }
+        if (buttonsDown & HidNpadButton_B)
+        {
+            catchChooser.active = false;
+            return;
+        }
+        const int before = catchChooser.selected;
+        if (buttonsDown & HidNpadButton_Up)
+            catchChooser.selected = (catchChooser.selected + rows - 1) % rows;
+        if (buttonsDown & HidNpadButton_Down)
+            catchChooser.selected = (catchChooser.selected + 1) % rows;
+        const bool custom = catchChooser.selected >= static_cast<int>(catchChooser.options.size());
+        if (!custom)
+        {
+            const Legality::CatchOption &option = catchChooser.options[catchChooser.selected];
+            if (catchChooser.selected != before)
+                catchChooser.metLevel = option.minMetLevel;
+            // The met level, within what the encounter allows (ZL/ZR jump to the ends).
+            if ((buttonsDown & HidNpadButton_Left) && catchChooser.metLevel > option.minMetLevel)
+                --catchChooser.metLevel;
+            if ((buttonsDown & HidNpadButton_Right) && catchChooser.metLevel < option.maxMetLevel)
+                ++catchChooser.metLevel;
+            if (buttonsDown & HidNpadButton_ZL)
+                catchChooser.metLevel = option.minMetLevel;
+            if (buttonsDown & HidNpadButton_ZR)
+                catchChooser.metLevel = option.maxMetLevel;
+            if ((buttonsDown & HidNpadButton_X) && option.shinyAllowed && !option.shinyForced)
+                catchChooser.shiny = !catchChooser.shiny;
+        }
+        if (buttonsDown & HidNpadButton_A)
+            commitCatch();
+    }
+
+    void TrainerViewScreen::commitCatch()
+    {
+        const uint8_t version = saveOriginVersion(trainer, titleId);
+        auto mon = buildDefaultMon(trainer, catchChooser.species, version);
+        if (!mon)
+        {
+            postStatus("This game can't hold that Pokémon.", 240);
+            catchChooser.active = false;
+            return;
+        }
+        const bool custom = catchChooser.selected >= static_cast<int>(catchChooser.options.size());
+        std::string where = "Created";
+        if (!custom)
+        {
+            const Legality::CatchOption &option = catchChooser.options[catchChooser.selected];
+            Legality::applyCatch(*mon, trainer, version, catchChooser.species, catchChooser.form, option,
+                                 catchChooser.metLevel, option.minLevel, catchChooser.shiny);
+            mon->setNickname(Utils::utf8ToUtf16(defaultNicknameFor(*mon)));
+            mon->refreshChecksum();
+            where = option.origin == Legality::CatchOption::Origin::Hatched ? "Hatched" : "Caught at " + option.title;
+        }
+        // Say straight away whether it passes the checker, not only on the summary page.
+        const Legality::Report report = Legality::analyze(*mon, trainer.getGameGroup());
+        std::string verdict = report.ok() ? "  ·  Legal" : "";
+        for (const auto &issue : report.issues)
+            if (issue.severity != Legality::Severity::Info)
+            {
+                verdict = "  ·  Check: " + issue.text;
+                break;
+            }
+        const std::string name = Trainer::getSpeciesName(catchChooser.species);
+        storageSlot(catchChooser.pane, catchChooser.box, catchChooser.slot) = std::move(mon);
+        hasUnsavedChanges = true;
+        catchChooser.active = false;
+        postStatus(name + ": " + where + verdict, 360);
+        if (catchChooser.openEditor)
+        {
+            openStorageEditor(catchChooser.pane, catchChooser.box, catchChooser.slot);
+            creator.pane = catchChooser.pane;
+            creator.box = catchChooser.box;
+            creator.slot = catchChooser.slot;
+            creator.editing = true; // a fresh pokemon -> Keep/Discard prompt on exit
+        }
+    }
+
     void TrainerViewScreen::openEncounterLookup(uint16_t speciesId, uint8_t formId)
     {
         encounterLookupActive = true;
@@ -3159,35 +3265,25 @@ namespace UI
                     return;
                 }
 
-                auto mon = Legality::materializeEncounter(trainer, titleId, entry);
-                if (!mon)
+                // Into the first empty box slot, through the same "how did you get it?" step as the
+                // creator -- which only offers what THIS game allows, whichever game the row was from.
+                int freeBox = -1, freeSlot = -1;
+                for (int b = 0; b < static_cast<int>(trainer.boxes.size()) && freeBox < 0; ++b)
+                    for (int slotIndex = 0; slotIndex < static_cast<int>(trainer.getSlotsPerBox()); ++slotIndex)
+                        if (!trainer.boxes[b][slotIndex] || trainer.boxes[b][slotIndex]->speciesID() == 0)
+                        {
+                            freeBox = b;
+                            freeSlot = slotIndex;
+                            break;
+                        }
+                if (freeBox < 0)
                 {
-                    postStatus("Failed to materialize Pokémon encounter.", 240);
+                    postStatus("Your boxes are full.", 240);
                     return;
                 }
-
-                // Place into first empty slot in trainer.boxes
-                bool placed = false;
-                for (size_t b = 0; b < trainer.boxes.size() && !placed; ++b)
-                {
-                    for (size_t s = 0; s < trainer.boxes[b].size() && !placed; ++s)
-                    {
-                        if (!trainer.boxes[b][s] || trainer.boxes[b][s]->speciesID() == 0)
-                        {
-                            trainer.boxes[b][s] = std::move(mon);
-                            placed = true;
-                            hasUnsavedChanges = true;
-                            std::string sName = Trainer::getSpeciesName(encounterLookupSpecies);
-                            std::string boxLabel = (b < trainer.boxNames.size()) ? trainer.boxNames[b] : ("Box " + std::to_string(b + 1));
-                            postStatus("Caught " + sName + "! Placed in " + boxLabel + " Slot " + std::to_string(s + 1) + ".", 360);
-                        }
-                    }
-                }
-
-                if (!placed)
-                {
-                    postStatus("All boxes are completely full! Free up a box slot first.", 360);
-                }
+                encounterLookupActive = false;
+                openCatchChooser(entry.rawRow.species, 0, freeBox, freeSlot, false);
+                return;
             }
         }
     }
@@ -4473,6 +4569,13 @@ namespace UI
             return;
         }
 
+        // "How did you get it?" -- owns input while open.
+        if (catchChooser.active)
+        {
+            handleCatchChooserInput(buttonsDown, touch);
+            return;
+        }
+
         // Offline Encounter Database & Route Lookup overlay — owns input while open
         if (encounterLookupActive)
         {
@@ -4583,14 +4686,10 @@ namespace UI
                 const int pickedSpecies = pickerSelectedValue();
                 if (pickedSpecies > 0)
                 {
-                    storageSlot(creator.pane, creator.box, creator.slot) =
-                        buildDefaultMon(trainer, static_cast<uint16_t>(pickedSpecies),
-                                        saveOriginVersion(trainer, titleId));
-                    hasUnsavedChanges = true;
+                    // Next: how this game gave it to you (see openCatchChooser).
                     pickerActive = false;
                     creator.active = false;
-                    openStorageEditor(creator.pane, creator.box, creator.slot);
-                    creator.editing = true; // modal now edits a fresh pokemon -> Keep/Discard prompt on exit
+                    openCatchChooser(static_cast<uint16_t>(pickedSpecies), creator.pane, creator.box, creator.slot, true);
                 }
                 else
                 {
@@ -8230,6 +8329,11 @@ namespace UI
         {
             PopIn pop(framebuffer, "drawPKSMImportResult");
             Dialogs::drawPKSMImportResult(*this, framebuffer);
+        }
+        if (catchChooser.active)
+        {
+            PopIn pop(framebuffer, "drawCatchChooser");
+            Dialogs::drawCatchChooser(*this, framebuffer);
         }
         if (encounterLookupActive)
         {

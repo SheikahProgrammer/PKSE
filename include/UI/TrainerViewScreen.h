@@ -34,6 +34,7 @@ namespace Pokemon
 #include "UI/Pokepark.h"
 #include "UI/Panels/PokeparkPanel.h"
 #include "Legality/EncounterLookup.h"
+#include "Legality/CatchBuilder.h"
 #include "UI/Panels/EncounterLookupPanel.h"
 
 // Forward declaration
@@ -600,6 +601,27 @@ namespace UI
             int keepConfirmIndex = 1;        // cursor: 0 = Discard, 1 = Keep (default)
         };
         CreatorState creator;
+
+        /// "How did you get it?" -- shown after a species is picked to create (or Catch is pressed in
+        /// the encounter lookup). Lists the ways THIS game could have given it (wild areas, statics,
+        /// gifts, an earlier stage then evolved, an Egg) and builds the Pokemon from the one chosen, at
+        /// a met level that encounter allows. "Custom" keeps the old free-form creation.
+        struct CatchChooserState
+        {
+            bool active = false;
+            uint16_t species = 0;
+            uint8_t form = 0;
+            std::vector<Legality::CatchOption> options; // plus one trailing "Custom" row in the UI
+            int selected = 0;
+            uint8_t metLevel = 1;
+            bool shiny = false;
+            int pane = 0, box = 0, slot = 0; // where it goes
+            bool openEditor = true;          // the creator opens the editor after; the lookup does not
+        };
+        CatchChooserState catchChooser;
+        void openCatchChooser(uint16_t species, int pane, int box, int slot, bool openEditor);
+        void handleCatchChooserInput(u64 buttonsDown, const TouchInput &touch);
+        void commitCatch();
         // Lossy-move acknowledgements. THREE independent warnings about three unrelated losses, kept
         // apart because they are not the same question, but ALL gated by the one Move warning
         // setting -- it covers every bank transfer warning in every generation:
