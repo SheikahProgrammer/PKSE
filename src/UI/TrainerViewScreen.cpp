@@ -76,6 +76,7 @@
 #include "Pokemon/PersonalInfo7USUM.h"
 #include "Conversion/Convert.h"
 #include "Utils/StringHelpers.h"
+#include "Utils/ResumeState.h"
 
 namespace UI
 {
@@ -4540,6 +4541,12 @@ namespace UI
             pendingTapButtonId = -1;
         }
 
+        // Remember each shared-cursor panel's place while it is open (see boxResumeSlot).
+        if (detailViewActive && selectedMode == ViewMode::Boxes && selectedItemIndex >= 0)
+            boxResumeSlot = selectedItemIndex;
+        else if (detailViewActive && selectedMode == ViewMode::Items)
+            itemResumeIndex = selectedItemIndex;
+
         // Let's Go stores its boxes as a GAPLESS list, so anything that vacated a slot last frame
         // left a hole the game can't represent. Re-pack it here rather than at each of the
         // several sites that can vacate a slot: this function has many early returns -- the release
@@ -7968,20 +7975,20 @@ namespace UI
         {
             switch (homeMenuIndex)
             {
-            case 0: // Pokemon (Boxes)
+            case 0: // Pokemon (Boxes) -- back on the slot it was left on
                 detailViewActive = true;
-                selectedItemIndex = 0;
+                selectedItemIndex = std::clamp(boxResumeSlot, 0, static_cast<int>(trainer.getSlotsPerBox()) - 1);
                 currentPage = 0;
                 break;
-            case 1: // Party
+            case 1: // Party -- the cursor is kept; clamped in case the party shrank meanwhile
                 detailViewActive = true;
-                selectedPartyIndex = 0;
+                selectedPartyIndex = std::clamp(selectedPartyIndex, 0, 5);
                 break;
-            case 2: // Storage (bank) — start on the save pane, Menu mode, nothing held/selected.
+            case 2: // Storage (bank) — the pane and slots it was left on, Menu mode, nothing held/selected.
                 detailViewActive = true;
-                storageFocusPane = 0;
-                stSaveSlot = 0;
-                stBankSlot = 0;
+                storageFocusPane = std::clamp(storageFocusPane, 0, 1);
+                stSaveSlot = std::clamp(stSaveSlot, 0, std::max(0, paneSlots(0) - 1));
+                stBankSlot = std::clamp(stBankSlot, 0, std::max(0, paneSlots(1) - 1));
                 moveMon.clear();
                 selectDimensions = {0, 0};
                 currentlySelecting = false;
@@ -7989,9 +7996,9 @@ namespace UI
                 groupMenuActive = false;
                 cursorMode = CursorMode::Menu;
                 break;
-            case 3: // Items
+            case 3: // Items -- the Items handler re-clamps this to the pouch and re-derives the page
                 detailViewActive = true;
-                selectedItemIndex = 0;
+                selectedItemIndex = std::max(0, itemResumeIndex);
                 currentPage = 0;
                 break;
             case 4: // Mystery Gift & Events
@@ -8004,7 +8011,7 @@ namespace UI
                 break;
             case 6: // Poképark Living Habitat
                 detailViewActive = true;
-                pokeparkSelectedResident = 0;
+                pokeparkSelectedResident = std::max(0, pokeparkSelectedResident); // clamped by the panel
                 pokeparkCardActive = false;
                 pokeparkJournalActive = false;
                 pokeparkDialogueText.clear();
@@ -8015,7 +8022,6 @@ namespace UI
                 break;
             case 8: // Settings screen (auto-backup + theme)
                 detailViewActive = true;
-                settingsSelectedRow = 0;
                 break;
             }
         }
@@ -8208,14 +8214,23 @@ namespace UI
                                         CONTENT_PANEL_HEIGHT);
                 break;
             case ViewMode::MysteryGift:
+            {
+                PopIn pop(framebuffer, "drawEventGallery");
                 Panels::drawEventGallery(*this, framebuffer);
                 break;
+            }
             case ViewMode::LivingDex:
+            {
+                PopIn pop(framebuffer, "drawLivingDexView");
                 Panels::drawLivingDexView(*this, framebuffer);
                 break;
+            }
             case ViewMode::Pokepark:
+            {
+                PopIn pop(framebuffer, "drawPokepark");
                 Panels::drawPokepark(*this, framebuffer);
                 break;
+            }
             case ViewMode::Trainer:
                 Panels::drawTrainerCardView(*this, framebuffer);
                 break;
@@ -8408,78 +8423,97 @@ namespace UI
         }
         if (evolutionModalActive)
         {
+            PopIn pop(framebuffer, "drawEvolutionModal");
             Modals::drawEvolutionModal(*this, framebuffer);
         }
         if (pickerActive)
         { // overlays the modal; registers its own touch buttons last
+            PopIn pop(framebuffer, "drawPickerDialog");
             Dialogs::drawPickerDialog(*this, framebuffer);
         }
         if (itemEditDialogActive)
         {
+            PopIn pop(framebuffer, "drawItemEditDialog");
             Dialogs::drawItemEditDialog(*this, framebuffer);
         }
         if (itemRemoveConfirmActive)
         {
+            PopIn pop(framebuffer, "drawItemRemoveConfirm");
             Dialogs::drawItemRemoveConfirm(*this, framebuffer);
         }
         if (statEdit.dialogActive)
         {
+            PopIn pop(framebuffer, "drawStatEditDialog");
             Dialogs::drawStatEditDialog(*this, framebuffer);
         }
         if (saveConfirmActive)
         {
+            PopIn pop(framebuffer, "drawSaveConfirmDialog");
             Dialogs::drawSaveConfirmDialog(*this, framebuffer);
         }
         if (saveInjectConfirmActive)
         { // overlays the picker
+            PopIn pop(framebuffer, "drawSaveInjectConfirm");
             Dialogs::drawSaveInjectConfirm(*this, framebuffer);
         }
         if (storageMenuActive)
         {
+            PopIn pop(framebuffer, "drawStorageActionMenu");
             Panels::drawStorageActionMenu(*this, framebuffer);
         }
         if (groupMenuActive)
         {
+            PopIn pop(framebuffer, "drawStorageGroupMenu");
             Panels::drawStorageGroupMenu(*this, framebuffer);
         }
         if (releaseConfirmActive)
         {
+            PopIn pop(framebuffer, "drawStorageReleaseConfirm");
             Panels::drawStorageReleaseConfirm(*this, framebuffer);
         }
         if (storageExitConfirmActive)
         {
+            PopIn pop(framebuffer, "drawStorageExitConfirm");
             Panels::drawStorageExitConfirm(*this, framebuffer);
         }
         if (creator.keepConfirmActive)
         { // "Keep this new Pokemon?" overlays the creator's editor
+            PopIn pop(framebuffer, "drawCreatorKeepConfirm");
             Panels::drawCreatorKeepConfirm(*this, framebuffer);
         }
         if (details.discardConfirmActive)
         { // "Unsaved changes" on closing an existing pokemon's editor
+            PopIn pop(framebuffer, "drawDetailsDiscardConfirm");
             Panels::drawDetailsDiscardConfirm(*this, framebuffer);
         }
         if (tradeEvolveChoiceActive)
         { // "Trade Evolve": which of two destinations -- Clamperl holding neither item
+            PopIn pop(framebuffer, "drawTradeEvolveChoice");
             Panels::drawTradeEvolveChoice(*this, framebuffer);
         }
         if (tradeEvolveConfirmActive)
         { // "Trade Evolve": a real save, a generated trainer, or cancel
+            PopIn pop(framebuffer, "drawTradeEvolveConfirm");
             Panels::drawTradeEvolveConfirm(*this, framebuffer);
         }
         if (tradePartnerTitles.active)
         { // which of this console's saves is the other side of the trade
+            PopIn pop(framebuffer, "drawTradePartnerTitlePicker");
             Panels::drawTradePartnerTitlePicker(*this, framebuffer);
         }
         if (gen3ConvertConfirmActive)
         { // "Convert to Gen 3?" -- PID rebuild, never gated
+            PopIn pop(framebuffer, "drawGen3ConvertConfirm");
             Panels::drawGen3ConvertConfirm(*this, framebuffer);
         }
         if (virtualConsoleTransferConfirmActive)
         {
+            PopIn pop(framebuffer, "drawVirtualConsoleTransferConfirm");
             Panels::drawVirtualConsoleTransferConfirm(*this, framebuffer);
         }
         if (lgpeTransferConfirmActive)
         { // "Moving to/from Let's Go resets AVs/EVs" -- gated by g_moveWarn
+            PopIn pop(framebuffer, "drawLgpeTransferConfirm");
             Panels::drawLgpeTransferConfirm(*this, framebuffer);
         }
         // PKSM import, back to front: the browser stays up underneath the preview so Cancel can drop
@@ -8489,18 +8523,22 @@ namespace UI
         {
             // Signature changed since this feature was parked: the browser is shared with
             // SaveSelectScreen now, so it takes the state + tap vector rather than a screen.
+            PopIn pop(framebuffer, "drawFileBrowser");
             Dialogs::drawFileBrowser(fileBrowser, framebuffer, touchButtons);
         }
         if (pksmImport.previewActive)
         {
+            PopIn pop(framebuffer, "drawPKSMImportPreview");
             Dialogs::drawPKSMImportPreview(*this, framebuffer);
         }
         if (pksmImport.resultActive)
         {
+            PopIn pop(framebuffer, "drawPKSMImportResult");
             Dialogs::drawPKSMImportResult(*this, framebuffer);
         }
         if (encounterLookupActive)
         {
+            PopIn pop(framebuffer, "drawEncounterLookup");
             Panels::drawEncounterLookup(*this, framebuffer);
         }
 
@@ -8517,5 +8555,109 @@ namespace UI
             framebuffer.drawRoundedRect(boxX, by, bw, bh, 8, Colors::Accent, 2);
             framebuffer.drawText(boxX + padX, by + 7, storageStatus, Colors::Text);
         }
+    }
+
+    // ---- Where you left off (Utils::Resume) -------------------------------------------------------
+
+    std::string TrainerViewScreen::resumeKey() const
+    {
+        // A title session is the title + the account that owns the save: two users may have the
+        // same game, and the backup folder changes with every snapshot. A loose save (the Tico and
+        // Citra users, a file browsed to) has no title id, and its path is what identifies it.
+        if (titleId == 0)
+            return "file:" + backupDir;
+        char key[64];
+        snprintf(key, sizeof(key), "title:%016lX:%016lX%016lX", static_cast<unsigned long>(titleId),
+                 static_cast<unsigned long>(userUid.uid[0]), static_cast<unsigned long>(userUid.uid[1]));
+        return key;
+    }
+
+    void TrainerViewScreen::restoreResume()
+    {
+        const Utils::Resume::Fields fields = Utils::Resume::get(resumeKey());
+        if (fields.empty())
+            return;
+        using Utils::Resume::intOf;
+        // Every value is clamped to what THIS save can hold: the file may predate an edit made in
+        // the game itself (a box count, a smaller pouch), and a stale index must never point past
+        // the end of anything.
+        homeMenuIndex = std::clamp(intOf(fields, "home", homeMenuIndex), 0, 8);
+        static constexpr ViewMode modeForMenu[9] = {ViewMode::Boxes,     ViewMode::Party,   ViewMode::Storage,
+                                                    ViewMode::Items,     ViewMode::MysteryGift, ViewMode::LivingDex,
+                                                    ViewMode::Pokepark,  ViewMode::Trainer, ViewMode::Settings};
+        selectedMode = modeForMenu[homeMenuIndex];
+
+        const int boxCount = static_cast<int>(trainer.getBoxCount());
+        if (boxCount > 0)
+            selectedBoxIndex = std::clamp(intOf(fields, "box", selectedBoxIndex), 0, boxCount - 1);
+        const int slots = std::max(1, static_cast<int>(trainer.getSlotsPerBox()));
+        boxResumeSlot = std::clamp(intOf(fields, "boxSlot", 0), 0, slots - 1);
+        selectedPartyIndex = std::clamp(intOf(fields, "party", 0), 0, 5);
+
+        if (!trainer.items.empty())
+            selectedCategory =
+                std::clamp(intOf(fields, "pouch", selectedCategory), 0, static_cast<int>(trainer.items.size()) - 1);
+        itemResumeIndex = std::max(0, intOf(fields, "item", 0)); // re-clamped to the pouch on entry
+
+        storageFocusPane = std::clamp(intOf(fields, "storagePane", 0), 0, 1);
+        stSaveSlot = std::clamp(intOf(fields, "storageSaveSlot", 0), 0, std::max(0, paneSlots(0) - 1));
+        stBankSlot = std::clamp(intOf(fields, "storageBankSlot", 0), 0, std::max(0, paneSlots(1) - 1));
+        cursorMode = static_cast<CursorMode>(std::clamp(intOf(fields, "cursorMode", 0), 0, 2));
+
+        eventTabMode = std::clamp(intOf(fields, "eventTab", 0), 0, 2);
+        eventSelectedIndex = std::max(0, intOf(fields, "event", 0)); // clamped by refreshEventList()
+        eventScrollOffset = std::max(0, intOf(fields, "eventScroll", 0));
+        keyEventSelectedIndex = std::max(0, intOf(fields, "keyEvent", 0));
+        keyEventScrollOffset = std::max(0, intOf(fields, "keyEventScroll", 0));
+        inboxSelectedIndex = std::max(0, intOf(fields, "inbox", 0));
+        inboxScrollOffset = std::max(0, intOf(fields, "inboxScroll", 0));
+
+        livingDexScope = std::clamp(intOf(fields, "dexScope", livingDexScope), -1, 9);
+        livingDexMissingOnly = intOf(fields, "dexMissing", 0) != 0;
+        livingDexShinyMode = intOf(fields, "dexShiny", 0) != 0;
+        livingDexPage = std::max(0, intOf(fields, "dexPage", 0));     // clamped by refreshLivingDex()
+        livingDexCursor = std::max(0, intOf(fields, "dexCursor", 0)); // ditto
+
+        pokeparkSelectedResident = std::max(0, intOf(fields, "park", 0)); // clamped by the panel
+        trainerSelectedRow = std::clamp(intOf(fields, "trainerRow", 0), 0, 13);
+        settingsSelectedRow = std::clamp(intOf(fields, "settingsRow", 0), 0, SETTINGS_ROW_VISIBLE_COUNT - 1);
+    }
+
+    void TrainerViewScreen::recordResume() const
+    {
+        // A panel still open (the app closed with + from inside it) records its live cursor.
+        int boxSlot = boxResumeSlot, item = itemResumeIndex;
+        if (detailViewActive && selectedMode == ViewMode::Boxes && selectedItemIndex >= 0)
+            boxSlot = selectedItemIndex;
+        else if (detailViewActive && selectedMode == ViewMode::Items)
+            item = selectedItemIndex;
+        const auto n = [](int value) { return std::to_string(value); };
+        Utils::Resume::put(resumeKey(), {
+                                            {"home", n(homeMenuIndex)},
+                                            {"box", n(selectedBoxIndex)},
+                                            {"boxSlot", n(boxSlot)},
+                                            {"party", n(selectedPartyIndex)},
+                                            {"pouch", n(selectedCategory)},
+                                            {"item", n(item)},
+                                            {"storagePane", n(storageFocusPane)},
+                                            {"storageSaveSlot", n(stSaveSlot)},
+                                            {"storageBankSlot", n(stBankSlot)},
+                                            {"cursorMode", n(static_cast<int>(cursorMode))},
+                                            {"eventTab", n(eventTabMode)},
+                                            {"event", n(eventSelectedIndex)},
+                                            {"eventScroll", n(eventScrollOffset)},
+                                            {"keyEvent", n(keyEventSelectedIndex)},
+                                            {"keyEventScroll", n(keyEventScrollOffset)},
+                                            {"inbox", n(inboxSelectedIndex)},
+                                            {"inboxScroll", n(inboxScrollOffset)},
+                                            {"dexScope", n(livingDexScope)},
+                                            {"dexMissing", n(livingDexMissingOnly ? 1 : 0)},
+                                            {"dexShiny", n(livingDexShinyMode ? 1 : 0)},
+                                            {"dexPage", n(livingDexPage)},
+                                            {"dexCursor", n(livingDexCursor)},
+                                            {"park", n(pokeparkSelectedResident)},
+                                            {"trainerRow", n(trainerSelectedRow)},
+                                            {"settingsRow", n(settingsSelectedRow)},
+                                        });
     }
 }

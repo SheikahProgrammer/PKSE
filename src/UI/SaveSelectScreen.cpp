@@ -6,6 +6,7 @@
 
 #include "Globals.h"
 #include "UI/SaveSelectScreen.h"
+#include "Utils/ResumeState.h"
 #include "UI/Common.h"
 #include "UI/ScreenChrome.h"
 #include "UI/ListSearch.h"
@@ -38,10 +39,52 @@ namespace UI
     // against a 224px row pitch. Anything past this scrolls rather than being drawn off the bottom edge.
     constexpr int VISIBLE_ROWS = 2;
 
+    // The save picker's own place (Utils::Resume): the user and title last opened. Matched by
+    // identity, not position -- a user added, or a game gaining its first save, shifts the lists.
+    static constexpr const char *PICKER_RESUME_SECTION = "picker";
+
+    static std::string userResumeKey(const SaveSelectScreen::UserEntry &user)
+    {
+        char uid[40];
+        snprintf(uid, sizeof(uid), "%016lX%016lX", static_cast<unsigned long>(user.accountUid.uid[0]),
+                 static_cast<unsigned long>(user.accountUid.uid[1]));
+        // The Tico / Citra entries are not accounts (their uid is zero), so the name tells them apart.
+        return std::string(uid) + ":" + user.name;
+    }
+
+    static std::string titleResumeKey(const SaveSelectScreen::TitleEntry &title)
+    {
+        if (!title.filePath.empty())
+            return "file:" + title.filePath;
+        char id[24];
+        snprintf(id, sizeof(id), "%016lX", static_cast<unsigned long>(title.titleId));
+        return id;
+    }
+
     SaveSelectScreen::SaveSelectScreen()
     {
         loadUsers();
         loadTicoSaves();
+
+        const Utils::Resume::Fields fields = Utils::Resume::get(PICKER_RESUME_SECTION);
+        const std::string wantUser = Utils::Resume::textOf(fields, "user");
+        const std::string wantTitle = Utils::Resume::textOf(fields, "title");
+        for (int u = 0; u < static_cast<int>(users.size()); ++u)
+        {
+            if (userResumeKey(users[u]) != wantUser)
+                continue;
+            setUser(u);
+            for (int t = 0; t < static_cast<int>(users[u].titles.size()); ++t)
+            {
+                if (titleResumeKey(users[u].titles[t]) == wantTitle)
+                {
+                    titleIndex = t;
+                    scrollSelectionIntoView();
+                    break;
+                }
+            }
+            break;
+        }
     }
 
     void SaveSelectScreen::loadUsers()
@@ -354,6 +397,8 @@ namespace UI
         const UserEntry *u = currentUser();
         if (!u || titleIndex < 0 || titleIndex >= static_cast<int>(u->titles.size()))
             return;
+        Utils::Resume::put(PICKER_RESUME_SECTION,
+                           {{"user", userResumeKey(*u)}, {"title", titleResumeKey(u->titles[titleIndex])}});
         if (!u->titles[titleIndex].filePath.empty())
         {
             selectedFilePath = u->titles[titleIndex].filePath;

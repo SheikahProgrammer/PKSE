@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "UI/Common.h"
 
@@ -190,12 +192,37 @@ namespace UI
         int getWidth() const { return width; }
         int getHeight() const { return height; }
 
-        // Screen transition fade (Phase 4.6). startFade() marks "now" as the fade start; call it when
-        // a screen begins. drawFadeOverlay() draws a full-screen Background-colored veil that fades
-        // from opaque to clear over ~0.22s (so the content materializes) — call it each frame just
-        // before flush(). A no-op once the fade has elapsed.
-        void startFade();
-        void drawFadeOverlay();
+        // Motion, ported from PKForge.App/Services/Motion.cs and Kit.AnimateIn.
+        //
+        // IMMEDIATE-MODE, LIKE EVERYTHING ELSE HERE. Each piece of motion is keyed by an id and lives
+        // as long as that id is drawn every frame. An id that skipped a frame starts over, which is
+        // exactly the rule a screen needs: a popup that was not on screen last frame has just opened
+        // and pops in, and a cursor that was not drawn last frame has just appeared and snaps rather
+        // than flying in from wherever it was the last time that panel was open. So no caller has to
+        // tell the motion layer when something opened -- and none of the ~30 dialog flags had to change.
+        //
+        // Input never waits on any of it: state changes the frame the button is pressed, and the
+        // motion only decides where that state is drawn while it catches up.
+
+        // Everything drawn between these animates in when `id` first appears: the window grows from
+        // 92% with PKForge's SpringOut over 160ms while fading in over 130ms. The scrim does NOT
+        // move -- the transform is applied at the first fill that is not full-screen, so the veil
+        // drawn before the window stays put and the window scales about its own centre.
+        void beginPopIn(const char *id);
+        void endPopIn();
+
+        // A cursor riding a critically damped spring toward (targetX, targetY): fast, eased, no
+        // overshoot. PKForge's box cursor uses 700 / 52.9. Snaps on the frame the id first appears.
+        void glide(const char *id, float targetX, float targetY, float &outX, float &outY, float stiffness = 700.0f,
+                   float damping = 52.9f);
+        // A single value on a spring. `initial` is where it starts when the id first appears; damping
+        // below 2*sqrt(stiffness) bounces (the pick-up hop, the focus pop).
+        float spring(const char *id, float target, float stiffness = 420.0f, float damping = 41.0f,
+                     float initial = 0.0f);
+
+        // Scale everything drawn until popTransform() about (centerX, centerY). Pairs must nest.
+        void pushScale(float centerX, float centerY, float scale);
+        void popTransform();
 
         // Frame timing (updated each flush()). Use these to drive animation without
         // every screen having to read a clock. deltaSeconds = time since last frame.
@@ -244,10 +271,44 @@ namespace UI
         uint64_t lastCounter = 0;
         float deltaSeconds = 0.0f;
         double totalSeconds = 0.0;
-        double fadeStart = -100.0; // start time of the current screen fade (see startFade)
+
+        // Motion state (see beginPopIn / glide / spring), keyed by id. `lastFrame` is the frame the
+        // id was last drawn on; anything that missed one starts fresh. Pruned in flush().
+        struct MotionEntry
+        {
+            uint64_t lastFrame = 0;
+            uint64_t steppedFrame = 0; // a spring advances once per frame however often it is asked
+            double start = 0.0;        // pop-in start time
+            float value[2] = {0, 0};
+            float velocity[2] = {0, 0};
+        };
+        std::unordered_map<std::string, MotionEntry> motion;
+        uint64_t frameIndex = 1;
+        MotionEntry &motionFor(const char *id, bool &fresh);
+        void stepSpring(MotionEntry &entry, int axis, float target, float stiffness, float damping);
+
+        struct PopScope
+        {
+            double start;
+            bool applied; // the transform has been applied (at the window's first fill)
+        };
+        std::vector<PopScope> popStack;
+        // Called by the fills: inside a pop-in, the first fill smaller than the screen is the window,
+        // so that is where the scale goes on.
+        void notePopupRect(float x, float y, float rectWidth, float rectHeight);
 
         // NanoVG image handles keyed by the source pixel-buffer pointer.
         std::map<const unsigned char *, int> imageCache;
+    };
+
+    /// Scoped beginPopIn/endPopIn: `{ PopIn pop(framebuffer, "id"); drawTheDialog(...); }`.
+    struct PopIn
+    {
+        PKSEFramebuffer &framebuffer;
+        PopIn(PKSEFramebuffer &target, const char *id) : framebuffer(target) { framebuffer.beginPopIn(id); }
+        ~PopIn() { framebuffer.endPopIn(); }
+        PopIn(const PopIn &) = delete;
+        PopIn &operator=(const PopIn &) = delete;
     };
 }
 

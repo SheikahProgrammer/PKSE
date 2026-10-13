@@ -421,6 +421,7 @@ namespace UI
             if (screen.livingDexModalActive && screen.livingDexModalSpecies > 0 &&
                 screen.livingDexModalSpecies <= Pokemon::LIVING_DEX_MAX_SPECIES)
             {
+                PopIn pop(framebuffer, "livingDexModal");
                 const uint16_t modalSpecies = screen.livingDexModalSpecies;
                 const auto &rec = screen.livingDexRecords[modalSpecies];
 

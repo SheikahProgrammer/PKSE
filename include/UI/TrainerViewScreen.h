@@ -184,6 +184,22 @@ namespace UI
         // Items, 4 Events, 5 Trainer, 6 Settings (circular icons).
         int homeMenuIndex = 0;
 
+        // WHERE EACH PANEL'S CURSOR WAS WHEN IT WAS LAST LEFT. Entering a panel used to reset its
+        // cursor to the first slot, so backing out to the menu and straight back in lost your place.
+        // Boxes and Items share selectedItemIndex, so each keeps its own copy, refreshed at the top of
+        // every update() the panel is open, and restored on entry. The other panels own their cursor
+        // outright and simply stopped resetting it.
+        int boxResumeSlot = 0;
+        int itemResumeIndex = 0;
+
+        // The same memory across visits and app restarts (Utils::Resume): restored when the save
+        // opens, recorded when the editor closes. Lands on the HOME menu with the panel you were in
+        // focused and every panel's cursor where you left it -- leaving the editor always passes
+        // through that menu, so that IS where you were.
+        std::string resumeKey() const;
+        void restoreResume();
+        void recordResume() const;
+
         // Selected row in the Settings view (0-4); reached from the menu's Settings icon.
         int settingsSelectedRow = 0;
 

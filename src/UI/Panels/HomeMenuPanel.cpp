@@ -235,6 +235,12 @@ namespace UI
                 const bool focused = (screen.homeMenuIndex == p.menuIndex);
                 if (pk)
                 {
+                    // The Nintendo focus pop (DsCard.Selected): a short spring up when focused and back
+                    // when not -- kept to 2% here, since a full-width row at 5% crowds its neighbours.
+                    static const char *const pillIds[3] = {"home.pill.0", "home.pill.1", "home.pill.2"};
+                    const float pop = framebuffer.spring(pillIds[p.menuIndex], focused ? 1.02f : 1.0f, 900.0f,
+                                                         focused ? 33.0f : 60.0f, 1.0f);
+                    framebuffer.pushScale(rightColumnX + rW / 2.0f, panelY + pillH / 2.0f, pop);
                     // DsFolderButton: the menu-button row, its count as the detail on the right.
                     if (focused)
                         framebuffer.pkSelectedButton(rightColumnX, panelY, rW, pillH, 4);
@@ -247,6 +253,7 @@ namespace UI
                     framebuffer.drawText(rightColumnX + rW - subtitleWidth - 24,
                                          framebuffer.textYCenteredOn(panelY + pillH / 2), p.subtitle,
                                          focused ? Pksm::Ink : Pksm::InkSoft);
+                    framebuffer.popTransform();
                     screen.touchButtons.push_back({100 + p.menuIndex, rightColumnX, panelY, rW, pillH});
                     panelY += pillH + pillGap;
                     continue;
@@ -305,6 +312,12 @@ namespace UI
                     const auto &ic = icons[innerIndex];
                     const int tileX = rightColumnX + innerIndex * (tileW + tileGap);
                     const bool focused = (screen.homeMenuIndex == ic.menuIndex);
+                    // DsCard's focus pop: up to 105% on a springy curve (130ms), back on a smooth one.
+                    static const char *const tileIds[6] = {"home.tile.0", "home.tile.1", "home.tile.2",
+                                                           "home.tile.3", "home.tile.4", "home.tile.5"};
+                    const float pop = framebuffer.spring(tileIds[innerIndex], focused ? 1.05f : 1.0f, 900.0f,
+                                                         focused ? 33.0f : 60.0f, 1.0f);
+                    framebuffer.pushScale(tileX + tileW / 2.0f, tileY + tileH / 2.0f, pop);
                     if (focused)
                         framebuffer.pkSelectedButton(tileX, tileY, tileW, tileH, 6);
                     else
@@ -327,6 +340,7 @@ namespace UI
                     framebuffer.measureText(ic.label, labelWidth, lH, TextStyle::Caption);
                     framebuffer.drawText(tileX + (tileW - labelWidth) / 2, tileY + tileH - 30, ic.label, Pksm::Ink,
                                          TextStyle::Caption);
+                    framebuffer.popTransform();
                     screen.touchButtons.push_back({100 + ic.menuIndex, tileX, tileY, tileW, tileH});
                 }
                 return;

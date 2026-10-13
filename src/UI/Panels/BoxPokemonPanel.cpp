@@ -316,15 +316,27 @@ namespace UI
             if (pk)
             {
                 const int slotSize = std::min(colPitch, rowPitch) - 8;
+                if (!haveSel && !headerFocused)
+                    return;
+                // The cursor glides between slots (and up onto the name bar) on PKForge's carry-hand
+                // spring rather than jumping; its size springs too, since the bar is wider than a slot.
+                const float targetW = haveSel ? slotSize : barW, targetH = haveSel ? slotSize : barH;
+                const float targetCx = haveSel ? selCx : barX + barW / 2.0f;
+                const float targetCy = haveSel ? selDiscTop + selDiscR : barY + barH / 2.0f;
+                float cursorCx, cursorCy, cursorW, cursorH;
+                framebuffer.glide("box.cursor", targetCx, targetCy, cursorCx, cursorCy);
+                framebuffer.glide("box.cursorSize", targetW, targetH, cursorW, cursorH);
                 if (haveSel)
                 {
+                    // CarryHand: a small hop up on pick-up (underdamped), a clean landing.
+                    const float lift = std::max(
+                        0.0f, framebuffer.spring("box.lift", carried ? 1.0f : 0.0f, 520.0f, carried ? 30.0f : 45.6f));
                     if (carried)
-                        drawLiftedMon(framebuffer, carried, selCx, selDiscTop + selDiscR - slotSize / 5, selDiscR);
-                    framebuffer.pkSelection(selCx - slotSize / 2, selDiscTop + selDiscR - slotSize / 2, slotSize,
-                                            slotSize, Pksm::CursorRed);
+                        drawLiftedMon(framebuffer, carried, static_cast<int>(cursorCx),
+                                      static_cast<int>(cursorCy - slotSize * 0.2f * lift), selDiscR);
                 }
-                else if (headerFocused)
-                    framebuffer.pkSelection(barX, barY, barW, barH, Pksm::CursorRed);
+                framebuffer.pkSelection(static_cast<int>(cursorCx - cursorW / 2), static_cast<int>(cursorCy - cursorH / 2),
+                                        static_cast<int>(cursorW), static_cast<int>(cursorH), Pksm::CursorRed);
                 return;
             }
 

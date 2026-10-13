@@ -321,6 +321,7 @@ namespace UI
             // Overlay A: Resident Profile Card
             if (screen.pokeparkCardActive && !visibleIndices.empty())
             {
+                PopIn pop(framebuffer, "pokeparkCard");
                 int rIdx = visibleIndices[screen.pokeparkSelectedResident];
                 const auto &res = residents[rIdx];
 
@@ -406,6 +407,7 @@ namespace UI
             // Overlay C: Adventure Journal Page
             if (screen.pokeparkJournalActive)
             {
+                PopIn pop(framebuffer, "pokeparkJournal");
                 constexpr int jW = 860, jH = 500;
                 const int jX = panelX + (panelW - jW) / 2;
                 const int jY = panelY + (panelH - jH) / 2;

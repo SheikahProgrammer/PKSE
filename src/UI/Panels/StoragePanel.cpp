@@ -312,6 +312,19 @@ namespace UI
                     return; // the header is unreachable while carrying
                 }
 
+                // The cursor -- and the block riding it -- glides on PKForge's carry-hand spring
+                // instead of jumping, across the pane boundary too (screen coordinates). Everything
+                // below is drawn at the target plus this offset, so it all travels as one.
+                float glideX, glideY;
+                framebuffer.glide("storage.cursor", static_cast<float>(g.centerX(cursorSlot)),
+                                  static_cast<float>(g.centerY(cursorSlot)), glideX, glideY);
+                const int glideDx = static_cast<int>(std::lround(glideX)) - g.centerX(cursorSlot);
+                const int glideDy = static_cast<int>(std::lround(glideY)) - g.centerY(cursorSlot);
+                // CarryHand's hop: a quick underdamped lift on pick-up, a clean landing on drop.
+                const float lift = std::max(0.0f, framebuffer.spring("storage.lift", screen.carrying() ? 1.0f : 0.0f,
+                                                                     520.0f, screen.carrying() ? 30.0f : 45.6f));
+                const int hop = static_cast<int>(std::lround(g.discR * 0.35f * (1.0f - lift)));
+
                 if (screen.carrying())
                 {
                     const int selectionColumns = std::max(1, screen.selectDimensions.first);
@@ -320,7 +333,7 @@ namespace UI
                     // A group that would hang off the grid is tinted with the warning colour, so the
                     // "must land in the exact slots" rule is visible before you press A rather than after.
                     const Color tint = fits ? cursorColor : Colors::Warning;
-                    const int baseX = g.cellX(cursorSlot), baseY = g.cellY(cursorSlot);
+                    const int baseX = g.cellX(cursorSlot) + glideDx, baseY = g.cellY(cursorSlot) + glideDy;
                     for (int yIndex = 0; yIndex < selectionRows; ++yIndex)
                     {
                         for (int columnOffset = 0; columnOffset < selectionColumns; ++columnOffset)
@@ -337,7 +350,8 @@ namespace UI
                                 framebuffer.drawFilledRoundedRect(
                                     cellCenterX - g.colPitch / 2 + 3, cellCenterY - g.rowPitch / 2 + 3, g.colPitch - 6,
                                     g.rowPitch - 6, 14, Color(tint.red, tint.green, tint.blue, 70));
-                            drawLiftedMon(framebuffer, screen.moveMon[index].get(), cellCenterX, cellCenterY, g.discR);
+                            drawLiftedMon(framebuffer, screen.moveMon[index].get(), cellCenterX, cellCenterY + hop,
+                                          g.discR);
                         }
                     }
                     if (selectionColumns > 1 || selectionRows > 1)
@@ -350,7 +364,7 @@ namespace UI
                 // party badge all stay visible. On the top row the body runs up over the box-name pill
                 // -- deliberately, the way HOME's cursor does; it is drawn last, so it floats over the
                 // header instead of being clipped by it.
-                const int cellCenterX = g.centerX(cursorSlot), cellCenterY = g.centerY(cursorSlot);
+                const int cellCenterX = g.centerX(cursorSlot) + glideDx, cellCenterY = g.centerY(cursorSlot) + glideDy;
                 framebuffer.drawPointerCursor(cellCenterX, cellCenterY - g.discR - 3 + bobOffset, GRID_CURSOR_HEIGHT,
                                               cursorColor);
                 // Corner brackets (DS crosshair) framing the focused slot

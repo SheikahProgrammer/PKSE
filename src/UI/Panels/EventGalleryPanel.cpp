@@ -492,6 +492,7 @@ namespace Panels {
 
                 if (screen.keyEventConfirmActive) {
                     drawPopupHints(fb, hX, 660, hW, 46, "A: Confirm  |  B: Cancel");
+                    PopIn pop(fb, "keyEventConfirm");
                     const bool enabling = screen.keyEventConfirmEnable;
                     std::string body;
                     if (enabling)

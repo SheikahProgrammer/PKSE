@@ -267,6 +267,16 @@ namespace UI
         }
         lastCounter = nowSeconds;
         totalSeconds += deltaSeconds;
+
+        // A pop-in left open by an early return must not leak its transform into the next frame.
+        popStack.clear();
+        ++frameIndex;
+        // Drop motion for ids gone a while; only every couple of seconds, since it walks the map.
+        if (frameIndex % 128 == 0)
+        {
+            for (auto it = motion.begin(); it != motion.end();)
+                it = (it->second.lastFrame + 2 < frameIndex) ? motion.erase(it) : std::next(it);
+        }
     }
 
     void PKSEFramebuffer::drawPixel(int pixelX, int pixelY, Color color)
@@ -283,6 +293,7 @@ namespace UI
     {
         if (!ensureFrame())
             return;
+        notePopupRect((float)rectX, (float)rectY, (float)rectWidth, (float)rectHeight);
         nvgBeginPath(vg);
         nvgRect(vg, (float)rectX, (float)rectY, (float)rectWidth, (float)rectHeight);
         nvgFillColor(vg, toNVG(color));
@@ -781,6 +792,7 @@ namespace UI
                            (float)std::min(cornerRadius, 6), Color(0x14, 0x12, 0x1D, 0x88));
             return;
         }
+        notePopupRect((float)shadowX, (float)shadowY, (float)shadowWidth, (float)shadowHeight);
         // Real feathered drop shadow: box gradient in the ring around the element (hole in the middle).
         NVGpaint shadowPaint =
             nvgBoxGradient(vg, (float)shadowX, shadowY + 3.0f, (float)shadowWidth, (float)shadowHeight,
@@ -799,6 +811,7 @@ namespace UI
     {
         if (gradientWidth <= 0 || gradientHeight <= 0 || !ensureFrame())
             return;
+        notePopupRect((float)gradientX, (float)gradientY, (float)gradientWidth, (float)gradientHeight);
         NVGpaint gradientPaint = nvgLinearGradient(vg, (float)gradientX, (float)gradientY, (float)gradientX,
                                                    (float)(gradientY + gradientHeight), toNVG(top), toNVG(bottom));
         nvgBeginPath(vg);
@@ -1380,6 +1393,7 @@ namespace UI
     {
         if (w <= 0 || h <= 0 || !ensureFrame())
             return;
+        notePopupRect(x, y, w, h);
         radius = std::max(0.0f, std::min(radius, std::min(w, h) / 2));
         nvgBeginPath(vg);
         nvgRoundedRect(vg, x, y, w, h, radius);
@@ -1391,6 +1405,7 @@ namespace UI
     {
         if (w <= 0 || h <= 0 || !ensureFrame())
             return;
+        notePopupRect(x, y, w, h);
         radius = std::max(0.0f, std::min(radius, std::min(w, h) / 2));
         NVGpaint paint = nvgLinearGradient(vg, 0, y, 0, y + h, toNVG(top), toNVG(bottom));
         nvgBeginPath(vg);
@@ -1623,16 +1638,148 @@ namespace UI
             fillRoundedRaw(x + 3.0f, y + 3.0f, std::max(1.0f, level), 6.0f, 1.0f, fill);
     }
 
-    void PKSEFramebuffer::startFade() { fadeStart = totalSeconds; }
+    // ---- Motion -------------------------------------------------------------------------------
 
-    void PKSEFramebuffer::drawFadeOverlay()
+    // Xamarin/MAUI's curves, which PKForge's numbers were tuned against.
+    static float easeCubicOut(float t) { return (t - 1) * (t - 1) * (t - 1) + 1; }
+    static float easeSpringOut(float t)
     {
-        constexpr double fadeDurationSeconds = 0.22;
-        double fadeProgress = (totalSeconds - fadeStart) / fadeDurationSeconds;
-        if (fadeProgress < 0.0 || fadeProgress >= 1.0)
+        const float x = t - 1;
+        return x * x * ((1.70158f + 1) * x + 1.70158f) + 1;
+    }
+
+    // Kit.AnimateIn: opacity 0 -> 1 over 130ms CubicOut, scale 0.92 -> 1 over 160ms SpringOut.
+    static constexpr double POP_FADE_SECONDS = 0.130;
+    static constexpr double POP_SCALE_SECONDS = 0.160;
+    static constexpr float POP_START_SCALE = 0.92f;
+
+    PKSEFramebuffer::MotionEntry &PKSEFramebuffer::motionFor(const char *id, bool &fresh)
+    {
+        auto [slot, inserted] = motion.try_emplace(id);
+        MotionEntry &entry = slot->second;
+        // Never seen, or absent last frame -> it has just appeared.
+        fresh = inserted || entry.lastFrame + 1 < frameIndex;
+        entry.lastFrame = frameIndex;
+        return entry;
+    }
+
+    void PKSEFramebuffer::stepSpring(MotionEntry &entry, int axis, float target, float stiffness, float damping)
+    {
+        // Small sub-steps keep the integration stable through a dropped frame (Motion.cs Spring.Step).
+        const float dt = deltaSeconds;
+        const int steps = std::max(1, static_cast<int>(std::ceil(dt / (1.0f / 240.0f))));
+        const float h = dt / steps;
+        float &value = entry.value[axis];
+        float &velocity = entry.velocity[axis];
+        for (int i = 0; i < steps; ++i)
+        {
+            velocity += (stiffness * (target - value) - damping * velocity) * h;
+            value += velocity * h;
+        }
+        if (std::fabs(target - value) < 0.01f && std::fabs(velocity) < 0.01f)
+        {
+            value = target;
+            velocity = 0;
+        }
+    }
+
+    void PKSEFramebuffer::glide(const char *id, float targetX, float targetY, float &outX, float &outY,
+                                float stiffness, float damping)
+    {
+        bool fresh;
+        MotionEntry &entry = motionFor(id, fresh);
+        if (fresh)
+        {
+            entry.value[0] = targetX;
+            entry.value[1] = targetY;
+            entry.velocity[0] = entry.velocity[1] = 0;
+            entry.steppedFrame = frameIndex;
+        }
+        else if (entry.steppedFrame != frameIndex)
+        {
+            entry.steppedFrame = frameIndex;
+            stepSpring(entry, 0, targetX, stiffness, damping);
+            stepSpring(entry, 1, targetY, stiffness, damping);
+        }
+        outX = entry.value[0];
+        outY = entry.value[1];
+    }
+
+    float PKSEFramebuffer::spring(const char *id, float target, float stiffness, float damping, float initial)
+    {
+        bool fresh;
+        MotionEntry &entry = motionFor(id, fresh);
+        if (fresh)
+        {
+            entry.value[0] = initial;
+            entry.velocity[0] = 0;
+            entry.steppedFrame = 0;
+        }
+        if (entry.steppedFrame != frameIndex)
+        {
+            entry.steppedFrame = frameIndex;
+            stepSpring(entry, 0, target, stiffness, damping);
+        }
+        return entry.value[0];
+    }
+
+    void PKSEFramebuffer::pushScale(float centerX, float centerY, float scale)
+    {
+        if (!ensureFrame())
             return;
-        Uint8 fadeAlpha = static_cast<Uint8>((1.0 - fadeProgress) * 255.0);
-        drawFilledRect(0, 0, width, height,
-                       Color(Colors::Background.red, Colors::Background.green, Colors::Background.blue, fadeAlpha));
+        nvgSave(vg);
+        nvgTranslate(vg, centerX, centerY);
+        nvgScale(vg, scale, scale);
+        nvgTranslate(vg, -centerX, -centerY);
+    }
+
+    void PKSEFramebuffer::popTransform()
+    {
+        if (vg && frameActive)
+            nvgRestore(vg);
+    }
+
+    void PKSEFramebuffer::beginPopIn(const char *id)
+    {
+        if (!ensureFrame())
+            return;
+        bool fresh;
+        MotionEntry &entry = motionFor(id, fresh);
+        if (fresh)
+            entry.start = totalSeconds;
+        nvgSave(vg);
+        // Finished pop-ins skip the transform entirely (applied = true), so a dialog that has been
+        // up for a while draws exactly as it did before this existed.
+        const bool done = totalSeconds - entry.start >= POP_SCALE_SECONDS;
+        popStack.push_back({entry.start, done});
+    }
+
+    void PKSEFramebuffer::endPopIn()
+    {
+        if (popStack.empty())
+            return;
+        popStack.pop_back();
+        if (vg && frameActive)
+            nvgRestore(vg);
+    }
+
+    void PKSEFramebuffer::notePopupRect(float x, float y, float rectWidth, float rectHeight)
+    {
+        if (popStack.empty() || popStack.back().applied)
+            return;
+        // The scrim (and a full-page backdrop) covers the screen; it is not the window.
+        if (rectWidth >= width - 1 && rectHeight >= height - 1)
+            return;
+        PopScope &scope = popStack.back();
+        scope.applied = true;
+        const float t = static_cast<float>(totalSeconds - scope.start);
+        const float fade = easeCubicOut(std::clamp(t / static_cast<float>(POP_FADE_SECONDS), 0.0f, 1.0f));
+        const float grow = easeSpringOut(std::clamp(t / static_cast<float>(POP_SCALE_SECONDS), 0.0f, 1.0f));
+        const float scale = POP_START_SCALE + (1.0f - POP_START_SCALE) * grow;
+        const float centerX = x + rectWidth / 2, centerY = y + rectHeight / 2;
+        nvgTranslate(vg, centerX, centerY);
+        nvgScale(vg, scale, scale);
+        nvgTranslate(vg, -centerX, -centerY);
+        nvgGlobalAlpha(vg, fade);
     }
 }

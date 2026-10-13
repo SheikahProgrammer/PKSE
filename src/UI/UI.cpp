@@ -40,7 +40,6 @@ namespace UI
     void UIManager::handleSaveSelection()
     {
         SaveSelectScreen selectScreen;
-        framebuffer.startFade();
 
         while (appletMainLoop() && running && !selectScreen.shouldExit())
         {
@@ -65,7 +64,6 @@ namespace UI
                 }
             }
             selectScreen.draw(framebuffer);
-            framebuffer.drawFadeOverlay();
             framebuffer.flush();
 
             if (selectScreen.hasSelectedTitle())
@@ -93,7 +91,6 @@ namespace UI
                                           const std::string &titleFolder)
     {
         BackupSelectionScreen backupScreen(titleId, titleName, titleFolder);
-        framebuffer.startFade();
 
         while (appletMainLoop() && running && !backupScreen.shouldExit())
         {
@@ -101,7 +98,6 @@ namespace UI
             touch.update();
             backupScreen.update(pad, touch);
             backupScreen.draw(framebuffer);
-            framebuffer.drawFadeOverlay();
             framebuffer.flush();
 
             if (backupScreen.hasSelectedBackup())
@@ -152,17 +148,17 @@ namespace UI
             // the picker screen had them enumerated, because walking save data is fs/ns work the
             // editor has no business repeating.
             trainerScreen.setConsoleSaves(consoleSaves);
-            framebuffer.startFade();
+            trainerScreen.restoreResume(); // back where this save was left
 
             while (appletMainLoop() && !trainerScreen.shouldExit() && !trainerScreen.hasRequestedExit()) {
                 padUpdate(&pad);
                 touch.update();
                 trainerScreen.update(pad, touch);
                 trainerScreen.draw(framebuffer);
-                framebuffer.drawFadeOverlay();
                 framebuffer.flush();
             }
 
+            trainerScreen.recordResume();
             // If user pressed + to exit app, stop running
             if (trainerScreen.hasRequestedExit()) {
                 running = false;
@@ -204,7 +200,7 @@ namespace UI
         // There is no title id, so 0 is passed and the save path travels as the "backup dir" so
         // the write-back knows which file it came from.
         TrainerViewScreen trainerScreen(*trainer, label, path, 0, AccountUid{}, false);
-        framebuffer.startFade();
+        trainerScreen.restoreResume();
 
         while (appletMainLoop() && !trainerScreen.shouldExit() && !trainerScreen.hasRequestedExit())
         {
@@ -212,9 +208,9 @@ namespace UI
             touch.update();
             trainerScreen.update(pad, touch);
             trainerScreen.draw(framebuffer);
-            framebuffer.drawFadeOverlay();
             framebuffer.flush();
         }
+        trainerScreen.recordResume();
         if (trainerScreen.hasRequestedExit())
             running = false;
     }
