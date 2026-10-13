@@ -111,12 +111,13 @@ CXXFLAGS	+=	-std=c++20
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-# SDL_LIBS already pulls in -lnx -lz -lm and the EGL/mesa/freetype/png/jpeg/webp
-# chain; we only need to add the project's own extra libs (lz4).
+# SDL_LIBS pulls in -lnx -lm and the EGL/mesa/freetype/png/jpeg/webp chain; we add the
+# project's own extra libs: lz4, and zlib for the Poképark's PNG photos (the static SDL link
+# order does not leave zlib's symbols resolvable from our objects).
 # NanoVG renders through OpenGL 4.3 core loaded by switch-glad. -lglad must come BEFORE the
 # EGL/mesa chain (which SDL_LIBS ends with: -lEGL -lglapi -ldrm_nouveau -lnx) so the static
 # linker resolves glad's eglGetProcAddress reference.
-LIBS	:= -lglad $(SDL_LIBS) -llz4 -lm
+LIBS	:= -lglad $(SDL_LIBS) -llz4 -lz -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

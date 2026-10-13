@@ -1,14 +1,18 @@
 #include "UI/PKSEFramebuffer.h"
 
+#include "Globals.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include <switch.h> // pl: the console's shared CJK fonts, loaded as NanoVG fallbacks below
 #include <glad/glad.h>
 #include <SDL2/SDL.h>
+#include <zlib.h>
 
 #include "nanovg.h"
 #define NANOVG_GL3
@@ -278,6 +282,8 @@ namespace UI
 
         // A pop-in left open by an early return must not leak its transform into the next frame.
         popStack.clear();
+        popLastFrame = popThisFrame;
+        popThisFrame = PopTransform{};
         typingBusyLastFrame = typingBusyThisFrame;
         typingBusyThisFrame = false;
         skipTypingRequested = false;
@@ -1820,6 +1826,88 @@ namespace UI
         nvgTranslate(vg, -centerX, -centerY);
     }
 
+    // PNG's chunk CRC (CRC-32/ISO-HDLC), table-driven.
+    static uint32_t pngCrc(uint32_t crc, const unsigned char *data, size_t length)
+    {
+        static uint32_t table[256];
+        static bool built = false;
+        if (!built)
+        {
+            for (uint32_t n = 0; n < 256; ++n)
+            {
+                uint32_t c = n;
+                for (int k = 0; k < 8; ++k)
+                    c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                table[n] = c;
+            }
+            built = true;
+        }
+        crc = ~crc;
+        for (size_t i = 0; i < length; ++i)
+            crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+        return ~crc;
+    }
+
+    // A PNG: signature, IHDR, one zlib-compressed IDAT, IEND. Written by hand over zlib (already
+    // linked through SDL) rather than pulling in libpng for one call.
+    static bool writePng(const std::string &path, int width, int height, const std::vector<unsigned char> &bottomUpRgb)
+    {
+        // Each row is a filter byte (0 = none) then its RGB; GL rows run bottom-up, PNG top-down.
+        const size_t rowBytes = static_cast<size_t>(width) * 3;
+        std::vector<unsigned char> raw((rowBytes + 1) * height);
+        for (int y = 0; y < height; ++y)
+        {
+            unsigned char *dst = &raw[(rowBytes + 1) * y];
+            dst[0] = 0;
+            std::memcpy(dst + 1, &bottomUpRgb[rowBytes * (height - 1 - y)], rowBytes);
+        }
+        uLongf packedSize = compressBound(static_cast<uLong>(raw.size()));
+        std::vector<unsigned char> packed(packedSize);
+        if (compress2(packed.data(), &packedSize, raw.data(), static_cast<uLong>(raw.size()), 3) != Z_OK)
+            return false;
+
+        FILE *f = fopen(path.c_str(), "wb");
+        if (!f)
+            return false;
+        bool ok = true;
+        auto put = [&](const void *data, size_t n) { ok = ok && fwrite(data, 1, n, f) == n; };
+        auto be32 = [](uint32_t v, unsigned char *out) {
+            out[0] = static_cast<unsigned char>(v >> 24);
+            out[1] = static_cast<unsigned char>(v >> 16);
+            out[2] = static_cast<unsigned char>(v >> 8);
+            out[3] = static_cast<unsigned char>(v);
+        };
+        auto chunk = [&](const char *type, const unsigned char *data, uint32_t length) {
+            unsigned char header[8];
+            be32(length, header);
+            std::memcpy(header + 4, type, 4);
+            put(header, 8);
+            if (length)
+                put(data, length);
+            uint32_t crc = pngCrc(0, reinterpret_cast<const unsigned char *>(type), 4);
+            if (length)
+                crc = pngCrc(crc, data, length);
+            unsigned char crcBytes[4];
+            be32(static_cast<uint32_t>(crc), crcBytes);
+            put(crcBytes, 4);
+        };
+        static const unsigned char signature[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+        put(signature, 8);
+        unsigned char ihdr[13];
+        be32(static_cast<uint32_t>(width), ihdr);
+        be32(static_cast<uint32_t>(height), ihdr + 4);
+        ihdr[8] = 8;  // bits per channel
+        ihdr[9] = 2;  // truecolour RGB
+        ihdr[10] = 0; // deflate
+        ihdr[11] = 0; // adaptive filtering (all rows use "none")
+        ihdr[12] = 0; // not interlaced
+        chunk("IHDR", ihdr, 13);
+        chunk("IDAT", packed.data(), static_cast<uint32_t>(packedSize));
+        chunk("IEND", nullptr, 0);
+        ok = (fclose(f) == 0) && ok;
+        return ok;
+    }
+
     void PKSEFramebuffer::captureScreenshot()
     {
         const std::string path = screenshotPath;
@@ -1827,43 +1915,7 @@ namespace UI
         std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 3);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-        FILE *f = fopen(path.c_str(), "wb");
-        if (!f)
-        {
-            screenshotStatus = -1;
-            return;
-        }
-        // BMP rows are bottom-up (as GL reads them), BGR, padded to four bytes.
-        const int rowBytes = (width * 3 + 3) & ~3;
-        const uint32_t imageSize = static_cast<uint32_t>(rowBytes) * height, fileSize = 54 + imageSize;
-        unsigned char header[54] = {'B', 'M'};
-        auto put32 = [&](int at, uint32_t v) {
-            for (int i = 0; i < 4; ++i)
-                header[at + i] = static_cast<unsigned char>(v >> (8 * i));
-        };
-        put32(2, fileSize);
-        put32(10, 54);
-        put32(14, 40);
-        put32(18, static_cast<uint32_t>(width));
-        put32(22, static_cast<uint32_t>(height));
-        header[26] = 1;
-        header[28] = 24;
-        put32(34, imageSize);
-        bool ok = fwrite(header, 1, 54, f) == 54;
-        std::vector<unsigned char> row(rowBytes, 0);
-        for (int y = 0; y < height && ok; ++y)
-        {
-            const unsigned char *src = &pixels[static_cast<size_t>(y) * width * 3];
-            for (int x = 0; x < width; ++x)
-            {
-                row[x * 3 + 0] = src[x * 3 + 2];
-                row[x * 3 + 1] = src[x * 3 + 1];
-                row[x * 3 + 2] = src[x * 3 + 0];
-            }
-            ok = fwrite(row.data(), 1, rowBytes, f) == static_cast<size_t>(rowBytes);
-        }
-        ok = (fclose(f) == 0) && ok;
-        screenshotStatus = ok ? 1 : -1;
+        screenshotStatus = writePng(path, width, height, pixels) ? 1 : -1;
     }
 
     void PKSEFramebuffer::popTransform()
@@ -1893,13 +1945,47 @@ namespace UI
         popStack.push_back(scope);
     }
 
-    // DialogueChoiceBox: 24ms a character, after the window has mostly popped in.
-    static constexpr double TYPE_SECONDS_PER_CHAR = 0.024;
+    // The games' Text Speed option (g_textSpeed: Slow / Mid / Fast / Instant). Mid is PKForge's
+    // DialogueChoiceBox pace, 24ms a character; a long message speeds up rather than dragging past
+    // the cap. Typing starts once the window has mostly popped in.
+    static constexpr double TYPE_SECONDS_PER_CHAR[4] = {0.040, 0.024, 0.012, 0.0};
+    static constexpr double TYPE_MAX_SECONDS[4] = {2.0, 1.0, 0.5, 0.0};
     static constexpr double TYPE_START_DELAY = 0.06;
-    static constexpr double TYPE_MAX_SECONDS = 1.0; // a long message speeds up rather than dragging
     static constexpr double CHOICES_FADE_SECONDS = 0.100;
 
+    // Like the games, the text catches its breath at the end of a sentence and after a comma: those
+    // characters cost extra "ticks" of the typing budget.
+    static int typeTicks(unsigned char c)
+    {
+        switch (c)
+        {
+        case '.':
+        case '!':
+        case '?':
+            return 7;
+        case ',':
+        case ';':
+        case ':':
+            return 3;
+        default:
+            return 1;
+        }
+    }
+
     static PKSEFramebuffer *s_typingFramebuffer = nullptr;
+
+    bool PKSEFramebuffer::popInScale(float &centerX, float &centerY, float &scale)
+    {
+        if (!s_typingFramebuffer && !s_activeFramebuffer)
+            return false;
+        const PKSEFramebuffer *fb = s_activeFramebuffer ? s_activeFramebuffer : s_typingFramebuffer;
+        if (!fb->popLastFrame.active)
+            return false;
+        centerX = fb->popLastFrame.centerX;
+        centerY = fb->popLastFrame.centerY;
+        scale = fb->popLastFrame.scale;
+        return true;
+    }
 
     bool PKSEFramebuffer::typingInProgress() { return s_typingFramebuffer && s_typingFramebuffer->typingBusyLastFrame; }
     void PKSEFramebuffer::skipTyping()
@@ -1919,14 +2005,15 @@ namespace UI
             entry.typingSkipped = true;
         scope.typing = true;
         scope.typed = 0;
-        if (entry.typingSkipped)
+        const int speed = std::clamp(g_textSpeed, 0, 3);
+        if (entry.typingSkipped || TYPE_SECONDS_PER_CHAR[speed] <= 0.0)
         {
             scope.budget = 1 << 30;
             return;
         }
-        const double perChar =
-            entry.typedTotal > 0 ? std::min(TYPE_SECONDS_PER_CHAR, TYPE_MAX_SECONDS / entry.typedTotal)
-                                 : TYPE_SECONDS_PER_CHAR;
+        const double perChar = entry.typedTotal > 0
+                                   ? std::min(TYPE_SECONDS_PER_CHAR[speed], TYPE_MAX_SECONDS[speed] / entry.typedTotal)
+                                   : TYPE_SECONDS_PER_CHAR[speed];
         const double t = totalSeconds - scope.start - TYPE_START_DELAY;
         scope.budget = t <= 0 ? 0 : static_cast<int>(t / perChar);
     }
@@ -1936,7 +2023,7 @@ namespace UI
         if (popStack.empty() || !popStack.back().typing)
             return text.size();
         PopScope &scope = popStack.back();
-        // Count in code points, so an accented letter appears whole.
+        // Count in code points, so an accented letter appears whole; punctuation costs extra ticks.
         size_t bytes = 0;
         while (bytes < text.size())
         {
@@ -1945,15 +2032,34 @@ namespace UI
                 // Keep counting what is still due, so endTyping() knows the message is unfinished.
                 for (size_t rest = bytes; rest < text.size(); ++rest)
                     if ((static_cast<unsigned char>(text[rest]) & 0xC0) != 0x80)
-                        ++scope.typed;
+                        scope.typed += typeTicks(static_cast<unsigned char>(text[rest]));
                 return bytes;
             }
+            const unsigned char lead = static_cast<unsigned char>(text[bytes]);
             ++bytes;
             while (bytes < text.size() && (static_cast<unsigned char>(text[bytes]) & 0xC0) == 0x80)
                 ++bytes;
-            ++scope.typed;
+            scope.typed += typeTicks(lead);
         }
         return bytes;
+    }
+
+    void PKSEFramebuffer::drawAdvanceArrow(int x, int y, Color color)
+    {
+        // Bobs two pixels and blinks, at roughly the games' rhythm.
+        const double phase = std::fmod(totalSeconds, 0.9);
+        if (phase > 0.65)
+            return;
+        const int bob = static_cast<int>(std::lround(std::sin(totalSeconds * 7.0) * 2.0));
+        if (!ensureFrame())
+            return;
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, static_cast<float>(x - 8), static_cast<float>(y - 10 + bob));
+        nvgLineTo(vg, static_cast<float>(x + 8), static_cast<float>(y - 10 + bob));
+        nvgLineTo(vg, static_cast<float>(x), static_cast<float>(y + bob));
+        nvgClosePath(vg);
+        nvgFillColor(vg, toNVG(color));
+        nvgFill(vg);
     }
 
     void PKSEFramebuffer::endTyping()
@@ -1965,6 +2071,7 @@ namespace UI
         scope.typing = false;
         entry.typedTotal = scope.typed;
         float choices;
+        lastTypingFinished = scope.typed <= scope.budget;
         if (scope.typed <= scope.budget)
         {
             if (entry.typedDoneAt < 0)
@@ -2011,5 +2118,7 @@ namespace UI
         nvgTranslate(vg, -centerX, -centerY);
         nvgGlobalAlpha(vg, fade);
         scope.fade = fade;
+        if (scale < 0.999f)
+            popThisFrame = {true, centerX, centerY, scale}; // the last one drawn is the topmost
     }
 }

@@ -234,8 +234,16 @@ namespace UI
         // only has to say where its message starts. A no-op outside a pop-in.
         void beginTyping();
         void endTyping();
+        /// Whether the message closed by the last endTyping() is fully out -- the moment the games put
+        /// up their blinking advance arrow.
+        bool typingFinished() const { return lastTypingFinished; }
+        /// The blinking advance arrow (the games' ▼) with its tip near (x, y).
+        void drawAdvanceArrow(int x, int y, Color color);
         // True while some dialog is still typing (as of the last frame drawn). The screens check it
         // first: A, or a tap, then finishes the message instead of answering the dialog unseen.
+        /// The scale (about its centre) of the topmost popup still growing in, as of the last frame
+        /// drawn; false when none is. TouchInput maps taps through it.
+        static bool popInScale(float &centerX, float &centerY, float &scale);
         static bool typingInProgress();
         static void skipTyping();
 
@@ -245,7 +253,7 @@ namespace UI
         void pushTransform(float centerX, float centerY, float scaleX, float scaleY);
         void popTransform();
 
-        // Saves the NEXT presented frame as a 24-bit BMP at `path` (read back just before the swap,
+        // Saves the NEXT presented frame as a PNG at `path` (read back just before the swap,
         // so it is exactly what was on screen). screenshotResult() then reports 1 for saved, -1 for
         // a failed write, and 0 while none has been taken since the last call.
         void requestScreenshot(const std::string &path) { screenshotPath = path; }
@@ -336,6 +344,13 @@ namespace UI
         std::string screenshotPath;
         int screenshotStatus = 0;
         void captureScreenshot();
+        struct PopTransform
+        {
+            bool active = false;
+            float centerX = 0, centerY = 0, scale = 1;
+        };
+        PopTransform popThisFrame, popLastFrame;
+        bool lastTypingFinished = true;
         bool typingBusyThisFrame = false, typingBusyLastFrame = false, skipTypingRequested = false;
         // How many of `text`'s bytes the typewriter lets through; advances the scope's count.
         size_t typedBytes(const std::string &text);

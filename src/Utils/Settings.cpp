@@ -1,6 +1,7 @@
 #include "Utils/Settings.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <sys/stat.h>
@@ -87,6 +88,11 @@ namespace Utils
             {
                 g_injectToGameSave = (strcmp(value, "0") != 0);
             }
+            else if (strcmp(key, "textSpeed") == 0)
+            {
+                const int speed = atoi(value);
+                g_textSpeed = speed < 0 ? 0 : (speed > 3 ? 3 : speed);
+            }
             else if (strcmp(key, "debugLogging") == 0)
             {
                 g_debugLogging = (strcmp(value, "0") != 0);
@@ -169,6 +175,7 @@ namespace Utils
         fprintf(f, "moveWarn=%d\n", g_moveWarn ? 1 : 0);
         fprintf(f, "injectToGame=%d\n", g_injectToGameSave ? 1 : 0);
         fprintf(f, "debugLogging=%d\n", g_debugLogging ? 1 : 0);
+        fprintf(f, "textSpeed=%d\n", g_textSpeed);
         fprintf(f, "language=%s\n", Names::nameLanguageSuffix(Names::displayLanguageIndex()));
         fclose(f);
     }

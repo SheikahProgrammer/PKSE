@@ -263,11 +263,14 @@ namespace UI
                                           failed ? Colors::Warning : Colors::Text);
             const int centerX = cardX + 28, cw = cardWidth - 56;
 
+            // The headline is a message and types out; the rows under it are a listing and follow it.
+            framebuffer.beginTyping();
             for (const auto &l : headlineLines)
             {
                 framebuffer.drawText(centerX, centerY, l, Colors::Text, TextStyle::Body);
                 centerY += 30;
             }
+            framebuffer.endTyping();
             if (!rows.empty())
             {
                 centerY += 6;

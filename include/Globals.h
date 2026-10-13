@@ -81,6 +81,9 @@ inline bool g_moveWarn = true;
 /// to know whether logging is on, which the preprocessor define was not.
 inline bool g_debugLogging = false;
 
+/// How fast dialog messages type out, as in the games' Options: 0 Slow, 1 Mid, 2 Fast, 3 Instant.
+inline int g_textSpeed = 1;
+
 /// Number of days to retain debug log files
 inline constexpr uint8_t LOG_RETENTION_DAYS = 30;
 

@@ -582,6 +582,28 @@ namespace UI
     // contentH the full content height, scroll the current offset. Item lists pass contentH =
     // totalItems * rowH and scroll = firstItem * rowH. One helper so every scrolling surface in the
     // app gets the same thumb the details editor uses.
+    /**
+     * Smooth scrolling for a list drawn a row at a time from `first`.
+     *
+     * The list's window eases to `first` on a spring (MonSummaryView's 180ms CubicOut feel) instead
+     * of jumping a row per press. Returns the pixels to ADD to every row's y this frame. Draw rows
+     * first-1 .. first+visible, clipped to the list, so neither edge shows a gap while it moves --
+     * and register tap targets only for rows fully inside it.
+     */
+    inline float easedListShift(PKSEFramebuffer &framebuffer, const char *id, int first, int pitch)
+    {
+        const float target = static_cast<float>(first * pitch);
+        return target - framebuffer.spring(id, target, 600.0f, 49.0f, target);
+    }
+
+    /// The same for a paged view: pixels to add to x this frame, so a new page slides in from the
+    /// side it was paged toward rather than replacing the old one in place.
+    inline float easedPageShift(PKSEFramebuffer &framebuffer, const char *id, int page, int width)
+    {
+        const float target = static_cast<float>(page * width);
+        return (target - framebuffer.spring(id, target, 420.0f, 41.0f, target)) * 0.35f;
+    }
+
     inline void drawScrollbar(PKSEFramebuffer &framebuffer, int trackX, int trackY, int trackH, int contentH,
                               int scroll)
     {
