@@ -186,12 +186,15 @@ namespace UI
     {
         if (!vg || !data)
             return;
-        auto iterator = imageCache.find(data);
-        if (iterator == imageCache.end())
-            return;
-        if (iterator->second >= 0)
-            nvgDeleteImage(vg, iterator->second);
-        imageCache.erase(iterator);
+        for (auto *cache : {&imageCache, &smoothImageCache})
+        {
+            auto iterator = cache->find(data);
+            if (iterator == cache->end())
+                continue;
+            if (iterator->second >= 0)
+                nvgDeleteImage(vg, iterator->second);
+            cache->erase(iterator);
+        }
     }
 
     PKSEFramebuffer::~PKSEFramebuffer()
@@ -202,10 +205,13 @@ namespace UI
             s_activeFramebuffer = nullptr;
         if (vg)
         {
-            for (auto &kv : imageCache)
-                if (kv.second >= 0)
-                    nvgDeleteImage(vg, kv.second);
-            imageCache.clear();
+            for (auto *cache : {&imageCache, &smoothImageCache})
+            {
+                for (auto &kv : *cache)
+                    if (kv.second >= 0)
+                        nvgDeleteImage(vg, kv.second);
+                cache->clear();
+            }
             nvgDeleteGL3(vg);
         }
         if (glContext)
@@ -985,18 +991,21 @@ namespace UI
         return (int)std::ceil(lh);
     }
 
-    int PKSEFramebuffer::nvgImageFor(const unsigned char *data, int imageWidth, int imageHeight, int channels)
+    int PKSEFramebuffer::nvgImageFor(const unsigned char *data, int imageWidth, int imageHeight, int channels,
+                                     bool shrinking)
     {
         if (!vg || !data || imageWidth <= 0 || imageHeight <= 0)
             return -1;
-        auto iterator = imageCache.find(data);
-        if (iterator != imageCache.end())
+        // Small art (box icons, items, balls, PKSM icons) is pixel art: drawn at its own size or
+        // larger it goes nearest-neighbour in EVERY theme, so its pixels stay square -- the linear
+        // filter smeared them in the HOME themes. Shrunk, nearest would drop whole rows, so a
+        // second, mipmapped copy serves that case. Larger art (HD renders, covers) is always mipmapped.
+        const bool small = imageWidth <= 128 && imageHeight <= 128;
+        const bool pixelArt = small && !shrinking;
+        auto &cache = (small && shrinking) ? smoothImageCache : imageCache;
+        auto iterator = cache.find(data);
+        if (iterator != cache.end())
             return iterator->second;
-
-        // Mipmaps so downscaled sprites (box grid / party / menu) stay crisp instead of shimmering.
-        // PKForge draws its small pixel art (box icons, items, PKSM icons) nearest-neighbour, so the
-        // pixels stay square; larger art (HD renders, covers) keeps the mipmapped path.
-        const bool pixelArt = isPkForgeTheme() && imageWidth <= 128 && imageHeight <= 128;
         const int flags = pixelArt ? NVG_IMAGE_NEAREST : NVG_IMAGE_GENERATE_MIPMAPS;
         int image = -1;
         if (channels == 4)
@@ -1019,7 +1028,7 @@ namespace UI
         {
             return -1;
         }
-        imageCache[data] = image;
+        cache[data] = image;
         return image;
     }
 
@@ -1044,7 +1053,8 @@ namespace UI
     {
         if (!ensureFrame())
             return;
-        int image = nvgImageFor(data, imageWidth, imageHeight, channels);
+        const bool shrinking = destWidth < imageWidth || destHeight < imageHeight;
+        int image = nvgImageFor(data, imageWidth, imageHeight, channels, shrinking);
         if (image < 0)
             return;
         const float a = static_cast<float>(alpha) / 255.0f;
@@ -1056,19 +1066,77 @@ namespace UI
         nvgFill(vg);
     }
 
+    // Pixel art (box icons, DS sprites) is at most 128 px a side; HD renders are far larger.
+    static bool isPixelArtSize(int sourceWidth, int sourceHeight) { return sourceWidth <= 128 && sourceHeight <= 128; }
+
+    void PKSEFramebuffer::fitSprite(int boxWidth, int boxHeight, int sourceWidth, int sourceHeight, int &outWidth,
+                                    int &outHeight, int *pixelScale) const
+    {
+        if (pixelScale)
+            *pixelScale = 0;
+        if (sourceWidth <= 0 || sourceHeight <= 0 || boxWidth <= 0 || boxHeight <= 0)
+        {
+            outWidth = outHeight = 0;
+            return;
+        }
+        const float scale = std::min(static_cast<float>(boxWidth) / sourceWidth,
+                                     static_cast<float>(boxHeight) / sourceHeight);
+        if (isPixelArtSize(sourceWidth, sourceHeight) && scale >= 1.0f)
+        {
+            // Whole multiples only, or the pixels come out uneven (every few rows doubled). It may
+            // round UP when it is nearly there: the icon frames carry several transparent pixels on
+            // every side, so a 2x a little over the box still reads as fitting it.
+            const int whole = std::max(1, static_cast<int>(scale + 0.3f));
+            outWidth = sourceWidth * whole;
+            outHeight = sourceHeight * whole;
+            if (pixelScale)
+                *pixelScale = whole;
+            return;
+        }
+        // HD art, or pixel art that has to shrink: keep the aspect (a 68x56 icon is not square).
+        outWidth = std::max(1, static_cast<int>(std::lround(sourceWidth * scale)));
+        outHeight = std::max(1, static_cast<int>(std::lround(sourceHeight * scale)));
+    }
+
+    void PKSEFramebuffer::drawSpriteFit(int boxX, int boxY, int boxWidth, int boxHeight, int sourceWidth,
+                                        int sourceHeight, const unsigned char *data, int channels, uint8_t alpha)
+    {
+        int drawWidth, drawHeight;
+        fitSprite(boxWidth, boxHeight, sourceWidth, sourceHeight, drawWidth, drawHeight);
+        if (drawWidth <= 0)
+            return;
+        drawImageScaled(boxX + (boxWidth - drawWidth) / 2, boxY + (boxHeight - drawHeight) / 2, sourceWidth,
+                        sourceHeight, drawWidth, drawHeight, data, channels, alpha);
+    }
+
     void PKSEFramebuffer::drawSpriteIdle(int spriteX, int spriteY, int boxWidth, int boxHeight, int sourceWidth,
                                          int sourceHeight, const unsigned char *data, int channels, float phase)
     {
         if (!data || boxWidth <= 0 || boxHeight <= 0)
             return;
+        int fitWidth, fitHeight, pixelScale;
+        fitSprite(boxWidth, boxHeight, sourceWidth, sourceHeight, fitWidth, fitHeight, &pixelScale);
+        if (fitWidth <= 0)
+            return;
         double bobPhase = std::sin(totalSeconds * 2.7 + phase);
-        int bobOffset = (int)std::lround(bobPhase * 3.0);
-        int drawWidth = (int)std::lround(boxWidth * (1.0 - bobPhase * 0.03));
-        int drawHeight = (int)std::lround(boxHeight * (1.0 + bobPhase * 0.03));
+        int drawWidth = fitWidth, drawHeight = fitHeight, bobOffset;
+        if (pixelScale > 0)
+        {
+            // Pixel art bobs by whole art pixels and never squashes: a 3% stretch on nearest-sampled
+            // pixels doubles a different row every frame, which reads as shimmering.
+            bobOffset = static_cast<int>(std::lround(bobPhase * 1.0)) * pixelScale;
+        }
+        else
+        {
+            bobOffset = (int)std::lround(bobPhase * 3.0);
+            drawWidth = (int)std::lround(fitWidth * (1.0 - bobPhase * 0.03));
+            drawHeight = (int)std::lround(fitHeight * (1.0 + bobPhase * 0.03));
+        }
+        // Feet on the box's floor, centred across it.
         int baseY = spriteY + boxHeight;
         int drawX = spriteX + (boxWidth - drawWidth) / 2;
         int drawY = baseY - drawHeight - bobOffset;
-        int shadowRadiusX = (int)std::lround(boxWidth * 0.30 - bobPhase * 2.0);
+        int shadowRadiusX = (int)std::lround(fitWidth * 0.30 - bobPhase * 2.0);
         int shadowRadiusY = (int)std::lround(5.0 - bobPhase * 1.0);
         drawFilledEllipse(spriteX + boxWidth / 2, baseY - 1, shadowRadiusX, shadowRadiusY, Color(0, 0, 0, 80));
         drawImageScaled(drawX, drawY, sourceWidth, sourceHeight, drawWidth, drawHeight, data, channels);

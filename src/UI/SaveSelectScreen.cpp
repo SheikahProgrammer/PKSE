@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cctype>
 #include <cmath>
+#include <ctime>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -708,12 +709,69 @@ namespace UI
         }
     }
 
+    static std::string lowered(const std::string &text)
+    {
+        std::string out = text;
+        for (char &c : out)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return out;
+    }
+
+    // A loose save's console, read off where the emulators keep it -- the scanners do not record a
+    // game version for these, so the folder is the only thing that knows.
+    static std::string loosePlatform(const std::string &path)
+    {
+        const std::string p = lowered(path);
+        if (p.find("nintendo 3ds") != std::string::npos || p.find("/3ds") != std::string::npos)
+            return "3DS";
+        if (p.find("/nds") != std::string::npos || p.find("melonds") != std::string::npos)
+            return "DS";
+        if (p.find("/gbc") != std::string::npos)
+            return "GBC";
+        if (p.find("/gba") != std::string::npos)
+            return "GBA";
+        if (p.find("/gb/") != std::string::npos)
+            return "GB";
+        return "";
+    }
+
+    // Which emulator owns a loose save, by the same folders loadTicoSaves() walks.
+    static std::string looseEmulator(const std::string &path)
+    {
+        const std::string p = lowered(path);
+        if (p.find("/tico/system/3ds") != std::string::npos)
+            return "Azahar in Tico";
+        if (p.find("/tico/") != std::string::npos)
+            return "Tico";
+        if (p.find("melonds") != std::string::npos)
+            return "melonDS";
+        if (p.find("/retroarch/") != std::string::npos)
+            return "RetroArch";
+        return "SD card";
+    }
+
+    static int platformGeneration(const std::string &platform)
+    {
+        if (platform == "GB" || platform == "GBC")
+            return 2;
+        if (platform == "GBA")
+            return 3;
+        if (platform == "DS")
+            return 4;
+        if (platform == "3DS")
+            return 6;
+        return 0;
+    }
+
     static int titleGeneration(const SaveSelectScreen::TitleEntry &title)
     {
         if (title.gameVersion == Enums::GameVersion::Invalid)
-            return title.filePath.empty() ? 8 : 0; // an installed title PKSE opens is a Switch game
+            return title.filePath.empty() ? 8 : platformGeneration(loosePlatform(title.filePath));
         return Enums::getVersionGeneration(Enums::getGroupRepVersion(title.gameVersion));
     }
+
+    // The console as the shelf names it: the save's own folder when it says, else the era's family.
+    static std::string titleConsole(const SaveSelectScreen::TitleEntry &title);
 
     static Color darker(Color c, float by)
     {
@@ -742,6 +800,46 @@ namespace UI
                 return candidate;
         }
         return "...";
+    }
+
+    // `text` cut in the MIDDLE to fit, so a path keeps both where it starts and the file it ends on.
+    static std::string fitMiddle(PKSEFramebuffer &framebuffer, const std::string &text, int maxWidth, TextStyle style)
+    {
+        int w, h;
+        framebuffer.measureText(text, w, h, style);
+        if (w <= maxWidth || text.size() < 8)
+            return fitWidth(framebuffer, text, maxWidth, style);
+        size_t keepHead = text.size() / 2, keepTail = text.size() - keepHead;
+        while (keepHead + keepTail > 4)
+        {
+            // Trim whichever side is longer, on code-point boundaries.
+            if (keepHead >= keepTail)
+            {
+                do
+                    --keepHead;
+                while (keepHead > 0 && (static_cast<unsigned char>(text[keepHead]) & 0xC0) == 0x80);
+            }
+            else
+            {
+                do
+                    --keepTail;
+                while (keepTail > 0 &&
+                       (static_cast<unsigned char>(text[text.size() - keepTail]) & 0xC0) == 0x80);
+            }
+            const std::string candidate = text.substr(0, keepHead) + "..." + text.substr(text.size() - keepTail);
+            framebuffer.measureText(candidate, w, h, style);
+            if (w <= maxWidth)
+                return candidate;
+        }
+        return fitWidth(framebuffer, text, maxWidth, style);
+    }
+
+    std::string titleConsole(const SaveSelectScreen::TitleEntry &title)
+    {
+        if (title.filePath.empty())
+            return "Switch";
+        const std::string platform = loosePlatform(title.filePath);
+        return platform.empty() ? std::string(consoleCode(titleGeneration(title))) : platform;
     }
 
     static const IconImage *titleIconFor(const SaveSelectScreen::TitleEntry &title)
@@ -887,9 +985,9 @@ namespace UI
                 int nw, nh;
                 framebuffer.measureText(name, nw, nh, TextStyle::Body);
                 framebuffer.drawText(tileX + (tileW - nw) / 2, cartY + cartH + 14, name, Pksm::Ink);
-                std::string detail = consoleCode(generation);
+                std::string detail = titleConsole(title);
                 if (!title.filePath.empty())
-                    detail += std::string(detail.empty() ? "" : " · ") + u->name;
+                    detail += std::string(detail.empty() ? "" : " · ") + looseEmulator(title.filePath);
                 detail = fitWidth(framebuffer, detail, textW, TextStyle::Caption);
                 int dw, dh;
                 framebuffer.measureText(detail, dw, dh, TextStyle::Caption);
@@ -915,21 +1013,80 @@ namespace UI
             }
 
             // -- The chosen save in full (the lower screen's "game library" card). ------------------
+            // Four labelled fields in two columns, rather than one run-on line and a raw SD path: what
+            // console, whose (or which emulator's) save it is, the file, and where it lives.
             const TitleEntry &title = u->titles[titleIndex];
             const int infoY = shelfY + tileH + 18;
             const int infoH = framebuffer.getHeight() - NAV_BAR_HEIGHT - 10 - infoY;
             framebuffer.pkPanel(16, infoY, screenW - 32, infoH);
-            framebuffer.pkHeaderStrip(26, infoY + 10, screenW - 52, 36, title.name, Pksm::HeaderBlue, false,
-                                      TextStyle::Body);
-            const int generation = titleGeneration(title);
-            std::string where = title.filePath.empty() ? std::string("Nintendo Switch save") : title.filePath;
-            std::string line = std::string(consoleCode(generation));
-            line += std::string(line.empty() ? "" : "  ·  ") + "Trainer " + u->name;
-            const int rowY = infoY + 58;
-            framebuffer.drawText(30, rowY, fitWidth(framebuffer, line, screenW - 80, TextStyle::Body), Pksm::Ink);
-            framebuffer.drawText(30, rowY + framebuffer.lineHeight(TextStyle::Body) + 4,
-                                 fitWidth(framebuffer, where, screenW - 80, TextStyle::Caption), Pksm::InkSoft,
-                                 TextStyle::Caption);
+            framebuffer.pkHeaderStrip(26, infoY + 10, screenW - 52, 36,
+                                      fitWidth(framebuffer, title.name, screenW - 100, TextStyle::Body),
+                                      Pksm::HeaderBlue, false, TextStyle::Body);
+
+            const bool loose = !title.filePath.empty();
+            std::string saveText, folderText;
+            if (loose)
+            {
+                const size_t slash = title.filePath.find_last_of('/');
+                saveText = slash == std::string::npos ? title.filePath : title.filePath.substr(slash + 1);
+                folderText = slash == std::string::npos ? std::string() : title.filePath.substr(0, slash);
+                if (folderText.rfind("sdmc:", 0) == 0)
+                    folderText = folderText.substr(5);
+                // Azahar names every save "main" under its title id; the id is what identifies it.
+                const size_t titleAt = title.filePath.find("/title/");
+                if (saveText == "main" && titleAt != std::string::npos)
+                {
+                    const std::string rest = title.filePath.substr(titleAt + 7); // 00040000/<id>/data/...
+                    const size_t idSlash = rest.find('/'), idEnd = rest.find('/', idSlash + 1);
+                    if (idSlash != std::string::npos && idEnd != std::string::npos)
+                        saveText = "3DS title " + rest.substr(idSlash + 1, idEnd - idSlash - 1);
+                }
+                struct stat st;
+                if (stat(title.filePath.c_str(), &st) == 0)
+                {
+                    char when[32];
+                    const time_t modified = st.st_mtime;
+                    if (strftime(when, sizeof(when), "%d %b %Y, %H:%M", localtime(&modified)) > 0)
+                        saveText += std::string("  ·  ") + when;
+                }
+            }
+            else
+            {
+                char id[24];
+                snprintf(id, sizeof(id), "%016lX", static_cast<unsigned long>(title.titleId));
+                saveText = std::string("Live save data  ·  ") + id;
+                folderText = "/PKSE/" + title.folder + "  (backups)";
+            }
+
+            struct Field
+            {
+                const char *label;
+                std::string value;
+            };
+            const Field fields[4] = {
+                {"Console", titleConsole(title)},
+                {loose ? "Emulator" : "Trainer", loose ? looseEmulator(title.filePath) : u->name},
+                {"Save", saveText},
+                {"Folder", folderText},
+            };
+            const int columnW = (screenW - 32 - 40) / 2, labelW = 104;
+            const int fieldTop = infoY + 58, fieldPitch = (infoH - 58 - 8) / 2;
+            for (int index = 0; index < 4; ++index)
+            {
+                // Console and Trainer on the left, the file and its folder (the long ones) on the right.
+                const int column = index < 2 ? 0 : 1, row = index % 2;
+                const int fx = 30 + column * (columnW + 20), fy = fieldTop + row * fieldPitch;
+                const int midY = fy + fieldPitch / 2 - 2;
+                framebuffer.drawText(fx, framebuffer.textYCenteredOn(midY, TextStyle::Caption), fields[index].label,
+                                     Pksm::InkSoft, TextStyle::Caption);
+                const int valueX = fx + (column == 0 ? labelW - 20 : labelW - 34);
+                const int valueW = columnW - (valueX - fx) - 6;
+                const std::string value = index == 3 ? fitMiddle(framebuffer, fields[index].value, valueW, TextStyle::Body)
+                                                     : fitWidth(framebuffer, fields[index].value, valueW, TextStyle::Body);
+                framebuffer.drawText(valueX, framebuffer.textYCenteredOn(midY), value, Pksm::Ink);
+            }
+            // Between the columns, the same rule the panels use for a divider.
+            framebuffer.drawFilledRect(30 + columnW + 9, fieldTop + 4, 2, infoH - 58 - 16, Pksm::LogoGrid);
         }
 
         if (fileBrowser.active)

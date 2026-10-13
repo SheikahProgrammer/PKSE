@@ -293,9 +293,8 @@ namespace UI
                 Sprite *sp = SpriteManager::getIconSprite(res.species, res.form, res.shiny);
                 if (sp && sp->data)
                 {
-                    framebuffer.drawImageScaled(rx - spriteSize / 2, ry - spriteSize / 2 - static_cast<int>(bob),
-                                                sp->width, sp->height, spriteSize, spriteSize,
-                                                sp->data, sp->channels);
+                    framebuffer.drawSpriteFit(rx - spriteSize / 2, ry - spriteSize / 2 - static_cast<int>(bob), spriteSize, spriteSize,
+                                              sp->width, sp->height, sp->data, sp->channels);
                 }
 
                 // Emotion Bubble

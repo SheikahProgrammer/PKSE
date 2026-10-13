@@ -801,9 +801,8 @@ namespace UI
                     if (icon && icon->data)
                     {
                         const int sprSize = 44;
-                        framebuffer.drawImageScaled(curSlotX + 6, slotY + (slotH - sprSize) / 2,
-                                                    icon->width, icon->height, sprSize, sprSize,
-                                                    icon->data, icon->channels);
+                        framebuffer.drawSpriteFit(curSlotX + 6, slotY + (slotH - sprSize) / 2, sprSize, sprSize,
+                                                  icon->width, icon->height, icon->data, icon->channels);
                     }
 
                     // Species Name

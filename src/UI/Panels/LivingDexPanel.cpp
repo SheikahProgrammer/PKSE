@@ -258,12 +258,14 @@ namespace UI
                     {
                         if (isOwned)
                         {
-                            framebuffer.drawImageScaled(sprX, sprY, spr->width, spr->height, sprSize, sprSize, spr->data, spr->channels, 255);
+                            framebuffer.drawSpriteFit(sprX, sprY, sprSize, sprSize,
+                                                      spr->width, spr->height, spr->data, spr->channels, 255);
                         }
                         else
                         {
                             // Missing / unowned: darkened silhouette (40 alpha)
-                            framebuffer.drawImageScaled(sprX, sprY, spr->width, spr->height, sprSize, sprSize, spr->data, spr->channels, 45);
+                            framebuffer.drawSpriteFit(sprX, sprY, sprSize, sprSize,
+                                                      spr->width, spr->height, spr->data, spr->channels, 45);
                         }
                     }
 
@@ -352,8 +354,8 @@ namespace UI
                 Sprite *curSpr = SpriteManager::getIconSprite(curSpecies, 0, screen.livingDexShinyMode || rec.shiny);
                 if (curSpr && curSpr->data)
                 {
-                    framebuffer.drawImageScaled(bX + 16, bY + (bH - pSprSize) / 2, curSpr->width, curSpr->height,
-                                                pSprSize, pSprSize, curSpr->data, curSpr->channels, curOwned ? 255 : 60);
+                    framebuffer.drawSpriteFit(bX + 16, bY + (bH - pSprSize) / 2, pSprSize, pSprSize,
+                                              curSpr->width, curSpr->height, curSpr->data, curSpr->channels, curOwned ? 255 : 60);
                 }
 
                 // Dex ID & Name
@@ -453,9 +455,8 @@ namespace UI
                 Sprite *lSpr = SpriteManager::getIconSprite(modalSpecies, 0, rec.shiny);
                 if (lSpr && lSpr->data)
                 {
-                    framebuffer.drawImageScaled(leftColX + (leftColW - pLargeSize) / 2, leftColY,
-                                                lSpr->width, lSpr->height, pLargeSize, pLargeSize,
-                                                lSpr->data, lSpr->channels, rec.owned ? 255 : 60);
+                    framebuffer.drawSpriteFit(leftColX + (leftColW - pLargeSize) / 2, leftColY, pLargeSize, pLargeSize,
+                                              lSpr->width, lSpr->height, lSpr->data, lSpr->channels, rec.owned ? 255 : 60);
                 }
 
                 const auto &pInfo = Pokemon::getPersonalInfo(modalSpecies, 0);

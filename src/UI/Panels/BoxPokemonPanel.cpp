@@ -221,9 +221,8 @@ namespace UI
                                                               : SpriteManager::getIconSprite(carried->speciesID(),
                                                                                              carried->form(), carriedShiny);
                             if (sprite && sprite->data)
-                                framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
-                                                            sprite->width, sprite->height, markerSize, markerSize,
-                                                            sprite->data, sprite->channels, 90);
+                                framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize, markerSize,
+                                                          sprite->width, sprite->height, sprite->data, sprite->channels, 90);
                             framebuffer.pkCarryGhost(slotX, slotY, slotSize, slotSize);
                         }
                     }
@@ -245,9 +244,8 @@ namespace UI
                                 Sprite *sprite = SpriteManager::getIconSprite(carried->speciesID(), carried->form(), carriedShiny);
                                 if (sprite && sprite->data)
                                 {
-                                    framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
-                                                                sprite->width, sprite->height, markerSize, markerSize,
-                                                                sprite->data, sprite->channels, 90);
+                                    framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize, markerSize,
+                                                              sprite->width, sprite->height, sprite->data, sprite->channels, 90);
                                 }
                             }
                             // Origin ring marker (warm primary amber)
@@ -274,9 +272,8 @@ namespace UI
                                 SpriteManager::getIconSprite(pokemon->speciesID(), pokemon->form(), isShiny);
                             if (sprite && sprite->data)
                             {
-                                framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
-                                                            sprite->width, sprite->height, markerSize, markerSize,
-                                                            sprite->data, sprite->channels);
+                                framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize, markerSize,
+                                                          sprite->width, sprite->height, sprite->data, sprite->channels);
                             }
                         }
                         // Markers: partner heart (top-left), party number (bottom-left), shiny star (top-right).

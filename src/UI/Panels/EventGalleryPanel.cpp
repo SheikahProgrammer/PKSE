@@ -148,7 +148,8 @@ namespace Panels {
                     Sprite* sp = SpriteManager::getIconSprite(rec->species, rec->form, rec->isShiny != 0);
                     if (sp && sp->data) {
                         const int sz = 40;
-                        fb.drawImageScaled(dcx - sz / 2, dcy - sz / 2, sp->width, sp->height, sz, sz, sp->data, sp->channels);
+                        fb.drawSpriteFit(dcx - sz / 2, dcy - sz / 2, sz, sz,
+                                         sp->width, sp->height, sp->data, sp->channels);
                     }
 
                     // Title
@@ -216,7 +217,8 @@ namespace Panels {
                     } else {
                         Sprite* icon = SpriteManager::getIconSprite(sel->species, sel->form, sel->isShiny != 0);
                         if (icon && icon->data) {
-                            fb.drawImageScaled(spX + 20, spY + 20, icon->width, icon->height, spSize - 40, spSize - 40, icon->data, icon->channels);
+                            fb.drawSpriteFit(spX + 20, spY + 20, spSize - 40, spSize - 40,
+                                             icon->width, icon->height, icon->data, icon->channels);
                         }
                     }
 
@@ -391,7 +393,8 @@ namespace Panels {
                     if (!sp || !sp->data) sp = SpriteManager::getUiIcon("key");
                     if (sp && sp->data) {
                         const int isz = 36;
-                        fb.drawImageScaled(dcx - isz / 2, dcy - isz / 2, sp->width, sp->height, isz, isz, sp->data, sp->channels);
+                        fb.drawSpriteFit(dcx - isz / 2, dcy - isz / 2, isz, isz,
+                                         sp->width, sp->height, sp->data, sp->channels);
                     }
 
                     const Color txtCol = focused ? Colors::PrimaryText : Colors::Text;
@@ -438,7 +441,7 @@ namespace Panels {
                                         : nullptr;
                 if (!sp || !sp->data) sp = SpriteManager::getUiIcon("key");
                 if (sp && sp->data)
-                    fb.drawImageScaled(spX + 20, spY + 20, sp->width, sp->height, 80, 80, sp->data, sp->channels);
+                    fb.drawSpriteFit(spX + 20, spY + 20, 80, 80, sp->width, sp->height, sp->data, sp->channels);
 
                 // The PKForge detail lines.
                 const int iX = sX + 166, textW = sW - 190;
@@ -582,7 +585,8 @@ namespace Panels {
                         Sprite* sp = SpriteManager::getIconSprite(card.species, 0, false);
                         if (sp && sp->data) {
                             const int sz = 36;
-                            fb.drawImageScaled(dcx - sz / 2, dcy - sz / 2, sp->width, sp->height, sz, sz, sp->data, sp->channels);
+                            fb.drawSpriteFit(dcx - sz / 2, dcy - sz / 2, sz, sz,
+                                             sp->width, sp->height, sp->data, sp->channels);
                         }
                     }
 
@@ -638,7 +642,7 @@ namespace Panels {
                         Sprite* sp = SpriteManager::getSprite(sel.species, 0, false);
                         if (!sp || !sp->data) sp = SpriteManager::getIconSprite(sel.species, 0, false);
                         if (sp && sp->data) {
-                            fb.drawImageScaled(sX + 44, detY + 20, sp->width, sp->height, 90, 90, sp->data, sp->channels);
+                            fb.drawSpriteFit(sX + 44, detY + 20, 90, 90, sp->width, sp->height, sp->data, sp->channels);
                         }
                     }
 

@@ -103,10 +103,8 @@ namespace UI
                             SpriteManager::getIconSprite(pokemon->speciesID(), pokemon->form(), shiny);
                         if (internalSpeciesId && internalSpeciesId->data)
                         {
-                            framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
-                                                        internalSpeciesId->width, internalSpeciesId->height, markerSize,
-                                                        markerSize, internalSpeciesId->data,
-                                                        internalSpeciesId->channels);
+                            framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize, markerSize,
+                                                      internalSpeciesId->width, internalSpeciesId->height, internalSpeciesId->data, internalSpeciesId->channels);
                         }
                     }
                 }

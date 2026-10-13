@@ -91,8 +91,8 @@ namespace UI
                 {
                     Sprite *sprite = SpriteManager::getIconSprite(pokemon->speciesID(), pokemon->form(), isShiny);
                     if (sprite && sprite->data)
-                        framebuffer.drawImageScaled(centerX - size / 2, centerY - size / 2, sprite->width,
-                                                    sprite->height, size, size, sprite->data, sprite->channels);
+                        framebuffer.drawSpriteFit(centerX - size / 2, centerY - size / 2, size, size,
+                                                  sprite->width, sprite->height, sprite->data, sprite->channels);
                 }
 
                 if (isShiny)
@@ -252,9 +252,8 @@ namespace UI
                                         Sprite *sprite = SpriteManager::getIconSprite(liftedMon->speciesID(), liftedMon->form(), liftedShiny);
                                         if (sprite && sprite->data)
                                         {
-                                            framebuffer.drawImageScaled(centerX - markerSize / 2, cy - markerSize / 2,
-                                                                        sprite->width, sprite->height, markerSize, markerSize,
-                                                                        sprite->data, sprite->channels, 90);
+                                            framebuffer.drawSpriteFit(centerX - markerSize / 2, cy - markerSize / 2, markerSize, markerSize,
+                                                                      sprite->width, sprite->height, sprite->data, sprite->channels, 90);
                                         }
                                     }
                                     // Origin ring marker (warm primary amber)

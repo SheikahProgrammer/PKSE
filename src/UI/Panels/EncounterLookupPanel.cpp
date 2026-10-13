@@ -95,9 +95,8 @@ namespace UI
             Sprite *iconSp = SpriteManager::getIconSprite(speciesId, formId, false);
             if (iconSp && iconSp->data)
             {
-                framebuffer.drawImageScaled(cardX + 16, cardY + (headerH - iconSize) / 2,
-                                            iconSp->width, iconSp->height, iconSize, iconSize,
-                                            iconSp->data, iconSp->channels);
+                framebuffer.drawSpriteFit(cardX + 16, cardY + (headerH - iconSize) / 2, iconSize, iconSize,
+                                          iconSp->width, iconSp->height, iconSp->data, iconSp->channels);
             }
 
             // Title

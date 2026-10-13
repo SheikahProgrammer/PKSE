@@ -39,8 +39,8 @@ namespace UI
             const bool shiny = pk->isShiny(pk->id32(), std::string(pk->species()));
             Sprite *sprite = SpriteManager::getIconSprite(pk->speciesID(), pk->form(), shiny);
             if (sprite && sprite->data)
-                framebuffer.drawImageScaled(centerX - size / 2, centerY - lift - size / 2, sprite->width,
-                                            sprite->height, size, size, sprite->data, sprite->channels);
+                framebuffer.drawSpriteFit(centerX - size / 2, centerY - lift - size / 2, size, size,
+                                          sprite->width, sprite->height, sprite->data, sprite->channels);
             if (shiny)
                 framebuffer.drawShinyMark(centerX + discR - 15, centerY - lift - discR + 1, 15, Colors::ShinyStar);
         }

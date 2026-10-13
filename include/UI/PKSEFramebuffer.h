@@ -188,6 +188,13 @@ namespace UI
         // (srcW,srcH) the sprite's native size; `phase` offsets the timing per sprite.
         void drawSpriteIdle(int spriteX, int spriteY, int boxWidth, int boxHeight, int sourceWidth, int sourceHeight,
                             const unsigned char *data, int channels, float phase);
+        // A Pokemon sprite fitted into a box, centred: aspect kept (a 68x56 box icon is not square),
+        // and pixel art scaled by whole multiples so every pixel stays the same size.
+        void drawSpriteFit(int boxX, int boxY, int boxWidth, int boxHeight, int sourceWidth, int sourceHeight,
+                           const unsigned char *data, int channels, uint8_t alpha = 255);
+        // The size drawSpriteFit draws at; `pixelScale` gets the whole multiple (0 for smooth scaling).
+        void fitSprite(int boxWidth, int boxHeight, int sourceWidth, int sourceHeight, int &outWidth, int &outHeight,
+                       int *pixelScale = nullptr) const;
 
         int getWidth() const { return width; }
         int getHeight() const { return height; }
@@ -261,7 +268,8 @@ namespace UI
         void fillGradientRaw(float x, float y, float width, float height, float radius, Color top, Color bottom);
         void strokeRoundedRaw(float x, float y, float width, float height, float radius, Color color, float thickness);
 
-        int nvgImageFor(const unsigned char *data, int dialogWidth, int dialogHeight, int channels);
+        int nvgImageFor(const unsigned char *data, int dialogWidth, int dialogHeight, int channels,
+                        bool shrinking = false);
         // Set NanoVG's font face + size for a text style (Heading/Title get a heavier faux-bold).
         void applyTextStyle(TextStyle style) const;
         // Begin the NanoVG frame lazily if one isn't already active. Returns true if vg is valid
@@ -322,6 +330,8 @@ namespace UI
 
         // NanoVG image handles keyed by the source pixel-buffer pointer.
         std::map<const unsigned char *, int> imageCache;
+        // Mipmapped copies of small art for when it is drawn smaller than its own size.
+        std::map<const unsigned char *, int> smoothImageCache;
     };
 
     /// Scoped beginPopIn/endPopIn: `{ PopIn pop(framebuffer, "id"); drawTheDialog(...); }`.
