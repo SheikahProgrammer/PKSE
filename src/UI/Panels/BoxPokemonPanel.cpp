@@ -272,8 +272,20 @@ namespace UI
                                 SpriteManager::getIconSprite(pokemon->speciesID(), pokemon->form(), isShiny);
                             if (sprite && sprite->data)
                             {
-                                framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize, markerSize,
-                                                          sprite->width, sprite->height, sprite->data, sprite->channels);
+                                // Pixel box icons (68x56) draw at a crisp 2x when the cell has room for it:
+                                // their frames carry several transparent pixels a side, so 136x112 reads as
+                                // fitting a 128x97 cell. Nudged up so the feet stay in their own row; rows
+                                // are drawn top to bottom, so a lower row sits in front.
+                                const bool pixel2x = sprite->width <= 128 && sprite->height <= 128 &&
+                                                     colPitch >= 120 && rowPitch >= 90;
+                                if (pixel2x)
+                                    framebuffer.drawSpriteFit(centerX - sprite->width, centerY - sprite->height - 6,
+                                                              sprite->width * 2, sprite->height * 2, sprite->width,
+                                                              sprite->height, sprite->data, sprite->channels);
+                                else
+                                    framebuffer.drawSpriteFit(centerX - markerSize / 2, centerY - markerSize / 2, markerSize,
+                                                              markerSize, sprite->width, sprite->height, sprite->data,
+                                                              sprite->channels);
                             }
                         }
                         // Markers: partner heart (top-left), party number (bottom-left), shiny star (top-right).
