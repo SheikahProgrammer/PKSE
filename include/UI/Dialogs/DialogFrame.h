@@ -20,16 +20,21 @@ namespace UI
         inline int drawDialogFrame(PKSEFramebuffer &framebuffer, int dialogX, int dialogY, int dialogWidth,
                                    int dialogHeight, const std::string &title, Color titleColor)
         {
-            // scrim
-            framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0, 0, 0, 150));
-            if (g_themeMode == ThemeMode::RetroDS)
+            if (isPkForgeTheme())
             {
-                framebuffer.drawRetroDSPanel(dialogX, dialogY, dialogWidth, dialogHeight, 12, Colors::Panel);
-                Color headerAccent = (titleColor.red > 180 && titleColor.green < 150) ? Color(0xE8, 0x38, 0x48) : Color(0x2B, 0x4E, 0x95);
-                framebuffer.drawRetroDSHeaderStrip(dialogX + 10, dialogY + 10, dialogWidth - 20, 42, title.c_str(),
-                                                   headerAccent, TextStyle::Heading);
+                // PadMenu: the UiTokens.Scrim over the screen, a device panel, and a header strip
+                // (cobalt, or the toned danger accent for a destructive question).
+                framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(),
+                                           Color(0x14, 0x12, 0x1D, 0xCC));
+                framebuffer.pkPanel(dialogX, dialogY, dialogWidth, dialogHeight);
+                const bool danger = titleColor.red > 180 && titleColor.green < 150;
+                framebuffer.pkHeaderStrip(dialogX + 10, dialogY + 10, dialogWidth - 20, 42, title,
+                                          danger ? Color(0xA6, 0x52, 0x63) : Pksm::HeaderBlue, false,
+                                          TextStyle::Heading);
                 return dialogY + 68;
             }
+            // scrim
+            framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0, 0, 0, 150));
             framebuffer.drawSoftShadow(dialogX, dialogY, dialogWidth, dialogHeight, DIALOG_CORNER_RADIUS);
             framebuffer.drawFilledRoundedRect(dialogX, dialogY, dialogWidth, dialogHeight, DIALOG_CORNER_RADIUS,
                                               Colors::Panel);

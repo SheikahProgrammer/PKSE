@@ -66,8 +66,7 @@ namespace UI
 
             // Header band + pouch name.
             constexpr int headerHeight = 46;
-            framebuffer.drawFilledRoundedRect(itemsX, itemsY, itemsWidth, headerHeight, 16, Colors::AccentDim);
-            framebuffer.drawFilledRect(itemsX, itemsY + headerHeight - 16, itemsWidth, 16, Colors::AccentDim);
+            framebuffer.drawCardBand(itemsX, itemsY, itemsWidth, headerHeight);
             GameVersion gameGroup = screen.trainer.getGameGroup();
             const char *pouchName = pouchDisplayName(gameGroup, screen.selectedCategory);
             framebuffer.drawText(itemsX + 22, itemsY + (headerHeight - framebuffer.lineHeight(TextStyle::Heading)) / 2,

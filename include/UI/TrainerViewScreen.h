@@ -31,6 +31,10 @@ namespace Pokemon
 #include "Modals/PokemonDetailsModal.h"
 #include "Pokemon/LivingDex.h"
 #include "Panels/LivingDexPanel.h"
+#include "UI/Pokepark.h"
+#include "UI/Panels/PokeparkPanel.h"
+#include "Legality/EncounterLookup.h"
+#include "UI/Panels/EncounterLookupPanel.h"
 
 // Forward declaration
 namespace Trainer
@@ -52,7 +56,8 @@ namespace UI
             MysteryGift, // offline mystery gift & event gallery injector
             Trainer,     // trainer info card (reached from the HOME main menu)
             Settings,    // settings screen (auto-backup + theme)
-            LivingDex    // 1,025-species Living Dex / Collection Tracker
+            LivingDex,   // 1,025-species Living Dex / Collection Tracker
+            Pokepark     // Poképark Living Habitat
         };
 
         // Cursor modes for the Storage view (cycled with Y). Colors: red / blue / green -- the same
@@ -183,11 +188,24 @@ namespace UI
         int settingsSelectedRow = 0;
 
         // Mystery Gift & Events injector view
+        int eventTabMode = 0; // 0 = Distribution Gallery, 1 = Key Item Script Events, 2 = Save Wonder Cards / Inbox
         int eventSelectedIndex = 0;
         int eventScrollOffset = 0;
         bool eventFilterCurrentGame = true;
         std::string eventSearchQuery = "";
         std::vector<size_t> filteredEvents;
+
+        // Key Item Events View State
+        int keyEventSelectedIndex = 0;
+        int keyEventScrollOffset = 0;
+        // PKForge's "Enable event?" / "Disable event?" confirmation before the write.
+        bool keyEventConfirmActive = false;
+        bool keyEventConfirmEnable = true;
+
+        // Wonder Card Inbox View State
+        int inboxSelectedIndex = 0;
+        int inboxScrollOffset = 0;
+
         void refreshEventList();
         void handleMysteryGiftInput(u64 buttonsDown, const TouchInput &touch);
         void receiveEvent(size_t eventIndex, int targetDestination); // 0 = Box, 1 = Party, 2 = Bank
@@ -207,14 +225,41 @@ namespace UI
         void refreshLivingDex();
         void handleLivingDexInput(u64 buttonsDown, const TouchInput &touch);
 
-        // Trainer info view: the focused editable row (0 Name, 1 Money) and a
-        // one-frame-deferred edit request. Name/Money open the blocking swkbd; deferring one frame lets
-        // the row highlight render before the applet suspends the app (same trick as pendingHeaderRename).
-        // -1 = nothing pending.
+        // Poképark Living Habitat view
+        int pokeparkSelectedResident = 0;
+        bool pokeparkCardActive = false;
+        bool pokeparkJournalActive = false;
+        int pokeparkJournalScroll = 0;
+        int pokeparkCardActionSelected = 0;
+        std::string pokeparkDialogueText;
+        float pokeparkDialogueTimer = 0.0f;
+        void handlePokeparkInput(u64 buttonsDown, const TouchInput &touch);
+
+        // Offline Encounter Database & Route Lookup
+        bool encounterLookupActive = false;
+        uint16_t encounterLookupSpecies = 0;
+        uint8_t encounterLookupForm = 0;
+        int encounterLookupScroll = 0;
+        int encounterLookupSelectedRow = 0;
+        int encounterLookupScope = 0; // 0 = ALL, 1 = Current Game, 2..10 = Gen 1..9
+        void openEncounterLookup(uint16_t speciesId, uint8_t formId = 0);
+        void handleEncounterLookupInput(u64 buttonsDown, const TouchInput &touch);
+
+        // Trainer Card view: focused element index:
+        // 0: Name, 1: Money, 2: Gender, 3: TID, 4: SID, 5: Quick Max, 6..13: Badges 0..7
         int trainerSelectedRow = 0;
         int pendingTrainerEdit = -1;
+        uint8_t trainerCardBadgesCache = 0;
+        bool trainerCardBadgesLoaded = false;
         void editTrainerName();  // swkbd edit of the OT name (charset-validated, per-game length cap)
         void editTrainerMoney(); // numpad edit of money (clamped to the game's max)
+        void editTrainerTID();   // numpad edit of 16-bit TID (0..65535)
+        void editTrainerSID();   // numpad edit of 16-bit SID (0..65535)
+        void toggleTrainerGender(); // toggle 0 (Male) <-> 1 (Female) and restamp
+        void setTrainerMaxMoney();  // quick max money shortcut
+        void toggleBadge(int badgeIdx); // toggle individual gym badge
+        void unlockAllBadges();         // set or toggle all 8 gym badges
+        void handleTrainerCardInput(u64 buttonsDown, const TouchInput &touch);
         // After a name edit, re-stamp the trainer identity your Pokemon store so they stay
         // recognized as yours (party + boxes; NOT the cross-game bank). Both the OT name AND the
         // Gen 7+ handler (HT) name are part of the identity the games match on, so a bare trainer

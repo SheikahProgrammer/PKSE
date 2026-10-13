@@ -70,6 +70,8 @@ namespace UI
         // selection fill + accent left edge
         void drawSelectionHighlight(int highlightX, int highlightY, int highlightWidth, int highlightHeight);
         void drawHDivider(int dividerX, int dividerY, int dividerWidth); // subtle horizontal rule
+        // The header band across the top of a card (PKForge: a cobalt header strip inset in the panel).
+        void drawCardBand(int bandX, int bandY, int bandWidth, int bandHeight);
         void drawFilledEllipse(int centerX, int centerY, int radiusX, int rectY, Color color); // e.g. soft shadows
 
         // Anti-aliased on the horizontal edges of rounded corners (fractional coverage);
@@ -159,6 +161,26 @@ namespace UI
                                     Color accent = Color(0x2B, 0x4E, 0x95), TextStyle style = TextStyle::Heading);
         void drawRetroDSButton(int x, int y, int width, int height, const char *label = nullptr, bool selected = false,
                                Color accent = Colors::Accent, int radius = 6);
+        // PKForge chrome, ported 1:1 from PKForge.Chrome/PksmPaint.cs. Drawn from the Pksm tokens, so
+        // they look the same whatever theme is active; the theme-aware primitives above route to
+        // them when the PKForge theme is on.
+        void pkLogoGrid(int x, int y, int width, int height, int cell = 32, int lineWidth = 2);
+        void pkPanel(int x, int y, int width, int height, Color fill = Pksm::Paper, int radius = 6);
+        void pkBlackButton(int x, int y, int width, int height, int radius = 4);
+        void pkSelectedButton(int x, int y, int width, int height, int radius = 4, Color accent = Pksm::HeaderBlue);
+        void pkHeaderStrip(int x, int y, int width, int height, const std::string &label = "",
+                           Color accent = Pksm::HeaderBlue, bool centred = false, TextStyle style = TextStyle::Body);
+        void pkStripeRow(int x, int y, int width, int height, bool selected);
+        // Box wallpaper: dark world tint + a quieter echo of the logo grid.
+        void pkWallpaper(int x, int y, int width, int height, Color base = Pksm::BoxWallpapers[0]);
+        // An empty box slot: only a faint waiting ball (the games draw no cell frames).
+        void pkEmptySlot(int x, int y, int width, int height, Color wallpaper = Pksm::BoxWallpapers[0]);
+        // Status-strip battery (PKForge DsChrome.StatusStrip), `percent` < 0 draws it full.
+        void pkBattery(int x, int y, int percent);
+        void pkBoxNameBar(int x, int y, int width, int height, const std::string &label, bool canPrev, bool canNext);
+        void pkSelection(int x, int y, int width, int height, Color color = Pksm::CursorRed);
+        void pkCarryGhost(int x, int y, int width, int height);
+
         // Draw a sprite with a gentle idle animation (bob + breathe) and a soft ground
         // shadow, driven by the frame tick. (x,y,boxW,boxH) is the nominal placement box;
         // (srcW,srcH) the sprite's native size; `phase` offsets the timing per sprite.
@@ -195,6 +217,11 @@ namespace UI
         // Lazily build + cache a NanoVG image from a raw sprite pixel buffer, keyed by the buffer
         // pointer (SpriteManager caches sprites for the session, so pointers are stable). Converts
         // RGB→RGBA if needed (NanoVG images are RGBA). Returns the image handle (>=0), or -1.
+        // Raw fills that skip the PKForge focus routing (the pk* chrome itself uses these).
+        void fillRoundedRaw(float x, float y, float width, float height, float radius, Color color);
+        void fillGradientRaw(float x, float y, float width, float height, float radius, Color top, Color bottom);
+        void strokeRoundedRaw(float x, float y, float width, float height, float radius, Color color, float thickness);
+
         int nvgImageFor(const unsigned char *data, int dialogWidth, int dialogHeight, int channels);
         // Set NanoVG's font face + size for a text style (Heading/Title get a heavier faux-bold).
         void applyTextStyle(TextStyle style) const;

@@ -36,9 +36,7 @@ namespace UI
                                    int boxPreviewY, int boxPreviewWidth, int boxPreviewHeight)
         {
             constexpr int headerH = 40;
-            framebuffer.drawFilledRoundedRect(boxPreviewX, boxPreviewY, boxPreviewWidth, headerH, 16,
-                                              Colors::AccentDim);
-            framebuffer.drawFilledRect(boxPreviewX, boxPreviewY + headerH - 16, boxPreviewWidth, 16, Colors::AccentDim);
+            framebuffer.drawCardBand(boxPreviewX, boxPreviewY, boxPreviewWidth, headerH);
 
             const int box = screen.selectedBoxIndex;
             const bool inRange = box >= 0 && box < static_cast<int>(screen.trainer.boxes.size());
@@ -63,6 +61,10 @@ namespace UI
                 discR = 14;
 
             const auto &curBox = screen.trainer.boxes[box];
+            const bool pk = isPkForgeTheme();
+            const Color wallpaper = Pksm::wallpaperAt(box);
+            if (pk)
+                framebuffer.pkWallpaper(boxPreviewX + 8, gy - 4, boxPreviewWidth - 16, gh + 8, wallpaper);
             for (int rIndex = 0; rIndex < rows; ++rIndex)
             {
                 for (int columnIndex = 0; columnIndex < cols; ++columnIndex)
@@ -72,7 +74,18 @@ namespace UI
                     const int centerY = gy + rIndex * rowPitch + rowPitch / 2;
                     const auto &pokemon = curBox[index];
                     const bool empty = !pokemon || pokemon->speciesID() == 0;
-                    framebuffer.drawFilledCircle(centerX, centerY, discR, empty ? Colors::Panel : Colors::PanelAlt);
+                    if (pk)
+                    {
+                        // No cell frames: an empty slot is a faint waiting ball on the wallpaper.
+                        if (empty)
+                        {
+                            const int size = std::min(colPitch, rowPitch) - 6;
+                            framebuffer.pkEmptySlot(centerX - size / 2, centerY - size / 2, size, size, wallpaper);
+                            continue;
+                        }
+                    }
+                    else
+                        framebuffer.drawFilledCircle(centerX, centerY, discR, empty ? Colors::Panel : Colors::PanelAlt);
                     if (empty)
                     {
                         framebuffer.drawCircle(centerX, centerY, discR, Colors::Border, 1);
@@ -157,6 +170,15 @@ namespace UI
                 framebuffer.drawFilledRoundedRect(centerX - shapeWidth / 2, centerY + 2, shapeWidth, sh, shapeWidth / 2,
                                                   iconColor); // shoulders
             }
+            else if (kind == 5)
+            { // Poképark: a leafy tree
+                const int trunkW = 6, trunkH = cornerRadius;
+                framebuffer.drawFilledRoundedRect(centerX - trunkW / 2, centerY, trunkW, trunkH, 2, iconColor);
+                framebuffer.drawFilledCircle(centerX - cornerRadius / 3, centerY - cornerRadius / 4, cornerRadius / 2 + 1, iconColor);
+                framebuffer.drawFilledCircle(centerX + cornerRadius / 3, centerY - cornerRadius / 4, cornerRadius / 2 + 1, iconColor);
+                framebuffer.drawFilledCircle(centerX, centerY - cornerRadius / 2 - 1, cornerRadius / 2 + 2, iconColor);
+                framebuffer.drawFilledCircle(centerX, centerY - cornerRadius / 3, 3, backgroundColor);
+            }
             else
             { // Settings: a gear
                 const double piRadians = 3.14159265358979323846;
@@ -207,9 +229,28 @@ namespace UI
             };
             const int pillH = 76, pillGap = 18;
             int panelY = 108;
+            const bool pk = isPkForgeTheme();
             for (const auto &p : pills)
             {
                 const bool focused = (screen.homeMenuIndex == p.menuIndex);
+                if (pk)
+                {
+                    // DsFolderButton: the menu-button row, its count as the detail on the right.
+                    if (focused)
+                        framebuffer.pkSelectedButton(rightColumnX, panelY, rW, pillH, 4);
+                    else
+                        framebuffer.pkBlackButton(rightColumnX, panelY, rW, pillH, 4);
+                    framebuffer.drawText(rightColumnX + 30, framebuffer.textYCenteredOn(panelY + pillH / 2, TextStyle::Heading),
+                                         p.label, Pksm::Ink, TextStyle::Heading);
+                    int subtitleWidth, sH;
+                    framebuffer.measureText(p.subtitle, subtitleWidth, sH, TextStyle::Body);
+                    framebuffer.drawText(rightColumnX + rW - subtitleWidth - 24,
+                                         framebuffer.textYCenteredOn(panelY + pillH / 2), p.subtitle,
+                                         focused ? Pksm::Ink : Pksm::InkSoft);
+                    screen.touchButtons.push_back({100 + p.menuIndex, rightColumnX, panelY, rW, pillH});
+                    panelY += pillH + pillGap;
+                    continue;
+                }
                 framebuffer.drawSoftShadow(rightColumnX, panelY, rW, pillH, pillH / 2);
                 framebuffer.drawPill(rightColumnX, panelY, rW, pillH, focused ? Colors::Primary : Colors::PanelAlt);
                 const Color labelColor = focused ? Colors::PrimaryText : Colors::Text;
@@ -242,17 +283,55 @@ namespace UI
                 int menuIndex;
                 int kind;
             };
-            Icon icons[5] = {
+            Icon icons[6] = {
                 {"Items", "I", 3, 0},
                 {"Events", "E", 4, 1},
                 {"Pokédex", "D", 5, 2},
-                {"Trainer", "T", 6, 3},
-                {"Settings", "S", 7, 4}
+                {"Poképark", "P", 6, 5},
+                {"Trainer", "T", 7, 3},
+                {"Settings", "S", 8, 4}
             };
-            const int iconR = 36;
-            const int slot = rW / 5;
+            const int iconR = 32;
+            const int slot = rW / 6;
             const int iconTop = panelY + 22;
-            for (int innerIndex = 0; innerIndex < 5; ++innerIndex)
+            if (pk)
+            {
+                // DsCard: a navy tile per destination, the icon as hero and the label beneath.
+                constexpr int tileGap = 10, tileH = 104;
+                const int tileW = (rW - tileGap * 5) / 6;
+                const int tileY = panelY + 4;
+                for (int innerIndex = 0; innerIndex < 6; ++innerIndex)
+                {
+                    const auto &ic = icons[innerIndex];
+                    const int tileX = rightColumnX + innerIndex * (tileW + tileGap);
+                    const bool focused = (screen.homeMenuIndex == ic.menuIndex);
+                    if (focused)
+                        framebuffer.pkSelectedButton(tileX, tileY, tileW, tileH, 6);
+                    else
+                        framebuffer.pkBlackButton(tileX, tileY, tileW, tileH, 6);
+                    static const char *const pksmIcons[6] = {"bag", "events", "pokedex", "park", "trainer", "settings"};
+                    Sprite *icon = SpriteManager::getUiIcon(pksmIcons[innerIndex]);
+                    if (icon && icon->data)
+                    {
+                        // Pixel art at an integer-ish 36 px box, aspect kept (PksmIcons.Icon, size 36).
+                        const int box = 40;
+                        const int iw = icon->width >= icon->height ? box : icon->width * box / icon->height;
+                        const int ih = icon->width >= icon->height ? icon->height * box / icon->width : box;
+                        framebuffer.drawImageScaled(tileX + (tileW - iw) / 2, tileY + 40 - ih / 2, icon->width,
+                                                    icon->height, iw, ih, icon->data, icon->channels);
+                    }
+                    else
+                        drawMenuIcon(framebuffer, tileX + tileW / 2, tileY + 40, 18, ic.kind, Pksm::Ink,
+                                     focused ? Color(0x31, 0x55, 0x9A) : Pksm::LogoDeck);
+                    int labelWidth, lH;
+                    framebuffer.measureText(ic.label, labelWidth, lH, TextStyle::Caption);
+                    framebuffer.drawText(tileX + (tileW - labelWidth) / 2, tileY + tileH - 30, ic.label, Pksm::Ink,
+                                         TextStyle::Caption);
+                    screen.touchButtons.push_back({100 + ic.menuIndex, tileX, tileY, tileW, tileH});
+                }
+                return;
+            }
+            for (int innerIndex = 0; innerIndex < 6; ++innerIndex)
             {
                 const auto &ic = icons[innerIndex];
                 const int centerX = rightColumnX + slot * innerIndex + slot / 2;

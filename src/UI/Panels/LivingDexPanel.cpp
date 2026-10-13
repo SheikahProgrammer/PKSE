@@ -9,6 +9,7 @@
 #include "UI/TrainerViewScreen.h"
 #include "UI/Common.h"
 #include "UI/PKSEFramebuffer.h"
+#include "UI/ScreenChrome.h"
 #include "UI/SpriteManager.h"
 #include "Pokemon/LivingDex.h"
 #include "Pokemon/PersonalInfoTable.h"
@@ -67,9 +68,9 @@ namespace UI
 
             const bool isRetroDS = (g_themeMode == ThemeMode::RetroDS);
 
-            // Screen Background
+            // Screen Background: PKForge shows the Living Dex as a popup over the dimmed screen.
             if (isRetroDS)
-                framebuffer.drawFilledRect(0, 0, 1280, 720, Color(0x0C, 0x10, 0x1F));
+                drawPopupFrame(framebuffer);
             else
                 framebuffer.drawFilledRect(0, 0, 1280, 720, Colors::Background);
 
@@ -400,20 +401,8 @@ namespace UI
             // 5. FOOTER INSTRUCTIONS BAR
             // =========================================================================
             const int ftY = 652, ftH = 46;
-            if (isRetroDS)
-            {
-                framebuffer.drawRetroDSPanel(hX, ftY, hW, ftH, 6, Color(0x14, 0x1B, 0x36));
-            }
-            else
-            {
-                framebuffer.drawFilledRoundedRect(hX, ftY, hW, ftH, 10, Colors::Panel);
-                framebuffer.drawRoundedRect(hX, ftY, hW, ftH, 10, Colors::Border, 1);
-            }
-
-            const char *inst = "D-Pad: Move | A: Location Details | L/R: Page | ZL/ZR: ±5 | X: Scope | Y: Missing | -: Shiny | B: Back";
-            int iw, ih;
-            framebuffer.measureText(inst, iw, ih, TextStyle::Caption);
-            framebuffer.drawText(hX + 20, ftY + (ftH - ih) / 2, inst, Colors::TextDim, TextStyle::Caption);
+            drawPopupHints(framebuffer, hX, ftY, hW, ftH,
+                           "D-Pad: Move | A: Details | L/R: Page | X: Scope | Y: Missing | -: Shiny | ZR: Catch | B: Back");
 
             // Page info on right
             char pageBuf[64];
@@ -563,17 +552,29 @@ namespace UI
                 // Modal Close Button at bottom right
                 const int btnW = 140, btnH = 38;
                 const int btnX = mX + mW - btnW - 24, btnY = mY + mH - btnH - 16;
+
+                // Where to Catch Button (id 3998)
+                const int catchBtnW = 190, catchBtnH = 38;
+                const int catchBtnX = btnX - catchBtnW - 14, catchBtnY = btnY;
                 if (isRetroDS)
                 {
+                    framebuffer.drawRetroDSButton(catchBtnX, catchBtnY, catchBtnW, catchBtnH, "WHERE TO CATCH [X]", false);
                     framebuffer.drawRetroDSButton(btnX, btnY, btnW, btnH, "CLOSE [B]", true);
                 }
                 else
                 {
+                    framebuffer.drawPill(catchBtnX, catchBtnY, catchBtnW, catchBtnH, Color(45, 125, 215));
+                    int cw, ch;
+                    framebuffer.measureText("Where to Catch? [X]", cw, ch, TextStyle::Body);
+                    framebuffer.drawText(catchBtnX + (catchBtnW - cw) / 2, catchBtnY + (catchBtnH - ch) / 2,
+                                         "Where to Catch? [X]", Colors::White, TextStyle::Body);
+
                     framebuffer.drawPill(btnX, btnY, btnW, btnH, Colors::Primary);
                     int bw, bh;
                     framebuffer.measureText("Close [B]", bw, bh, TextStyle::Body);
                     framebuffer.drawText(btnX + (btnW - bw) / 2, btnY + (btnH - bh) / 2, "Close [B]", Colors::PrimaryText, TextStyle::Body);
                 }
+                screen.touchButtons.push_back({3998, catchBtnX, catchBtnY, catchBtnW, catchBtnH});
                 screen.touchButtons.push_back({3999, btnX, btnY, btnW, btnH});
             }
         }

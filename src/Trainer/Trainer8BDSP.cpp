@@ -412,9 +412,12 @@ namespace Trainer
     {
         // Raw-buffer game: write straight into saveData (like updateItemBlock); recomputeHash() runs
         // after.
-        if (saveData.size() < BDSP_MYSTATUS + 0x1A)
+        if (saveData.size() < BDSP_MYSTATUS + 0x25)
             return;
         setString(&saveData[BDSP_MYSTATUS], 0x1A, utf8ToUtf16(trainerName), 12);
+        saveData[BDSP_MYSTATUS + 0x24] = (trainerGender == 0) ? 1 : 0;
+        if (saveData.size() >= BDSP_ID32 + 4)
+            writeUInt32LittleEndian(&saveData[BDSP_ID32], ID32);
         if (saveData.size() >= BDSP_MONEY + 4)
             writeUInt32LittleEndian(&saveData[BDSP_MONEY], money);
     }

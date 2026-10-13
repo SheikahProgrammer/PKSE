@@ -146,6 +146,28 @@ namespace UI
                 framebuffer.drawSpriteIdle(leftColumnX + (Lw - renderSz) / 2, colY + 14, renderSz, renderSz,
                                   sprite->width, sprite->height, sprite->data, sprite->channels, 0.0f);
             }
+
+            // Button: Where to Catch? (ZR / touch id 93)
+            {
+                const std::string catchLabel = "Where to Catch";
+                int clw = 0, clh = 0;
+                framebuffer.measureText(catchLabel, clw, clh, TextStyle::Caption);
+                const int catchBtnW = clw + 20, catchBtnH = 26;
+                const int catchBtnX = leftColumnX + Lw - 14 - catchBtnW;
+                const int catchBtnY = colY + 14;
+                if (g_themeMode == ThemeMode::RetroDS)
+                {
+                    framebuffer.drawRetroDSButton(catchBtnX, catchBtnY, catchBtnW, catchBtnH, "CATCH [ZR]", false);
+                }
+                else
+                {
+                    framebuffer.drawFilledRoundedRect(catchBtnX, catchBtnY, catchBtnW, catchBtnH, catchBtnH / 2, Colors::PanelAlt);
+                    framebuffer.drawRoundedRect(catchBtnX, catchBtnY, catchBtnW, catchBtnH, catchBtnH / 2, Colors::Accent, 1);
+                    framebuffer.drawText(catchBtnX + 10, catchBtnY + (catchBtnH - clh) / 2, catchLabel, Colors::Accent, TextStyle::Caption);
+                }
+                screen.touchButtons.push_back({93, catchBtnX, catchBtnY, catchBtnW, catchBtnH});
+            }
+
             // A Tera badge takes its own line, so the scroll region below has to start lower.
             const int teraBadgeHeight = p->hasTeraType() ? 26 : 0;
             // Type badges under the render (icons, centered).
@@ -1237,14 +1259,15 @@ namespace UI
                 // is already signalled by the top-bar "Unsaved changes" marker.
                 const std::string backSeg = "B: Close";
                 const std::string modeSeg = "ZL: Stat Mode  |  ";
+                const std::string catchSeg = "ZR: Where to Catch  |  ";
                 if (selectedIndex >= 15)
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg + "Right: Values  |  " +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + catchSeg + modeSeg + "Right: Values  |  " +
                               saveSeg + "  |  " + backSeg;
                 else if (selectedIndex >= 10)
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg + "Left: Values  |  " +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + catchSeg + modeSeg + "Left: Values  |  " +
                               saveSeg + "  |  " + backSeg;
                 else
-                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + modeSeg +
+                    navHint = "A: Edit  |  Y: Ribbons  |  L: Randomize IVs  |  " + legalSeg + catchSeg + modeSeg +
                               "Left: Details  |  Right: Moves  |  " + saveSeg + "  |  " + backSeg;
                 drawNavBar(framebuffer, navHint);
                 }

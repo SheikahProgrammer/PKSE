@@ -45,26 +45,36 @@ namespace UI
         void drawBoxPokemon(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer, int boxPokemonX, int boxPokemonY,
                             int boxPokemonWidth, int boxPokemonHeight)
         {
+            // PKForge: the device panel holding a box-name bar over the box's wallpaper (BoxBrowserPage).
+            const bool pk = isPkForgeTheme();
             // Rounded card surface.
-            framebuffer.drawFilledRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16,
-                                              Colors::Panel);
+            if (pk)
+                framebuffer.pkPanel(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight);
+            else
+                framebuffer.drawFilledRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16,
+                                                  Colors::Panel);
 
             // Box-slot / arrow touch targets are rebuilt every frame (hit-tested next frame).
             screen.touchButtons.clear();
 
             if (screen.selectedBoxIndex < 0 || screen.selectedBoxIndex >= static_cast<int>(screen.trainer.boxes.size()))
             {
-                framebuffer.drawRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16,
-                                            Colors::Border, 1);
+                if (!pk)
+                    framebuffer.drawRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16,
+                                                Colors::Border, 1);
                 framebuffer.drawText(boxPokemonX + 20, boxPokemonY + 70, "No box data available", Colors::TextDim);
                 return;
             }
 
-            constexpr int headerH = 46;
-            framebuffer.drawFilledRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, headerH, 16,
-                                              Colors::AccentDim);
-            // square the bottom edge
-            framebuffer.drawFilledRect(boxPokemonX, boxPokemonY + headerH - 16, boxPokemonWidth, 16, Colors::AccentDim);
+            const int headerH = pk ? 52 : 46;
+            if (!pk)
+            {
+                framebuffer.drawFilledRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, headerH, 16,
+                                                  Colors::AccentDim);
+                // square the bottom edge
+                framebuffer.drawFilledRect(boxPokemonX, boxPokemonY + headerH - 16, boxPokemonWidth, 16,
+                                           Colors::AccentDim);
+            }
 
             // Centered box-name pill.
             std::string boxName = screen.selectedBoxIndex < static_cast<int>(screen.trainer.boxNames.size())
@@ -79,17 +89,32 @@ namespace UI
             // Amber pill when the header is focused (navigate up to it, or tap it, to rename). The name
             // is a touch target between the two arrow zones.
             const bool headerFocused = screen.detailViewActive && screen.selectedItemIndex == -1;
-            framebuffer.drawPill(pillX, pillY, pillW, pillH, headerFocused ? Colors::Primary : Colors::Panel);
-            framebuffer.drawText(boxPokemonX + (boxPokemonWidth - boxNameWidth) / 2, pillY + (pillH - bnH) / 2, boxName,
-                                 headerFocused ? Colors::PrimaryText : Colors::Text);
+            // PKForge box banner geometry (inset in the panel); the wallpaper fills the rest.
+            const int barX = boxPokemonX + 10, barY = boxPokemonY + 10, barW = boxPokemonWidth - 20, barH = 36;
+            if (pk)
+            {
+                framebuffer.pkBoxNameBar(barX, barY, barW, barH, boxName, true, true);
+                framebuffer.pkWallpaper(boxPokemonX + 10, barY + barH + 6, boxPokemonWidth - 20,
+                                        boxPokemonHeight - (barY + barH + 6 - boxPokemonY) - 10,
+                                        Pksm::wallpaperAt(screen.selectedBoxIndex));
+            }
+            else
+            {
+                framebuffer.drawPill(pillX, pillY, pillW, pillH, headerFocused ? Colors::Primary : Colors::Panel);
+                framebuffer.drawText(boxPokemonX + (boxPokemonWidth - boxNameWidth) / 2, pillY + (pillH - bnH) / 2,
+                                     boxName, headerFocused ? Colors::PrimaryText : Colors::Text);
+            }
             screen.touchButtons.push_back(
                 {BOX_NAME_TOUCH_ID, boxPokemonX + 64, boxPokemonY, boxPokemonWidth - 128, headerH});
 
             // ‹ › box arrows — geometric triangles via the symbol font (guaranteed glyphs, unlike
             // Nunito's ‹›); also touch targets -> L/R box change.
             const int arrowY = boxPokemonY + (headerH - bnH) / 2;
-            framebuffer.drawSymbol(boxPokemonX + 26, arrowY, "◀", Colors::Text);
-            framebuffer.drawSymbol(boxPokemonX + boxPokemonWidth - 40, arrowY, "▶", Colors::Text);
+            if (!pk)
+            {
+                framebuffer.drawSymbol(boxPokemonX + 26, arrowY, "◀", Colors::Text);
+                framebuffer.drawSymbol(boxPokemonX + boxPokemonWidth - 40, arrowY, "▶", Colors::Text);
+            }
             screen.touchButtons.push_back({PREVIOUS_BOX_TOUCH_ID, boxPokemonX, boxPokemonY, 64, headerH});
             screen.touchButtons.push_back(
                 {NEXT_BOX_TOUCH_ID, boxPokemonX + boxPokemonWidth - 64, boxPokemonY, 64, headerH});
@@ -99,8 +124,12 @@ namespace UI
                                   std::to_string(screen.trainer.getBoxCount());
             int countTextWidth, cH;
             framebuffer.measureText(counter, countTextWidth, cH, TextStyle::Caption);
-            framebuffer.drawText(boxPokemonX + boxPokemonWidth - 52 - countTextWidth, boxPokemonY + (headerH - cH) / 2,
-                                 counter, Colors::Text, TextStyle::Caption);
+            if (pk)
+                framebuffer.drawText(barX + barW - 54 - countTextWidth, framebuffer.textYCenteredOn(barY + barH / 2, TextStyle::Caption),
+                                     counter, Pksm::InkSoft, TextStyle::Caption);
+            else
+                framebuffer.drawText(boxPokemonX + boxPokemonWidth - 52 - countTextWidth, boxPokemonY + (headerH - cH) / 2,
+                                     counter, Colors::Text, TextStyle::Caption);
 
             const auto &currentBox = screen.trainer.boxes[screen.selectedBoxIndex];
 
@@ -167,10 +196,38 @@ namespace UI
                     const bool empty = grabbed || !pokemon || speciesName == "None" || speciesName == "Empty" ||
                                        pokemon->speciesID() == 0;
 
+                    // PKForge draws no cell frames: the sprite itself is the slot, and an empty one is a
+                    // faint waiting ball on the wallpaper.
+                    const int slotSize = std::min(colPitch, rowPitch) - 8;
+                    const int slotX = centerX - slotSize / 2, slotY = centerY - slotSize / 2;
+                    if (pk)
+                    {
+                        if (empty && !(grabbed && carried))
+                            framebuffer.pkEmptySlot(slotX, slotY, slotSize, slotSize,
+                                                    Pksm::wallpaperAt(screen.selectedBoxIndex));
+                    }
                     // Disc: occupied a touch lighter than empty for subtle depth.
-                    framebuffer.drawFilledCircle(centerX, centerY, discR, empty ? Colors::Panel : Colors::PanelAlt);
+                    else
+                        framebuffer.drawFilledCircle(centerX, centerY, discR, empty ? Colors::Panel : Colors::PanelAlt);
 
-                    if (empty)
+                    if (empty && pk)
+                    {
+                        if (grabbed && carried)
+                        {
+                            // The lifted mon leaves a dimmed ghost and the dashed carry outline behind.
+                            const bool carriedShiny = carried->isShiny(carried->id32(), carried->species());
+                            const int markerSize = std::min(static_cast<int>(discR * 1.8), colPitch - 6);
+                            Sprite *sprite = carried->isEgg() ? nullptr
+                                                              : SpriteManager::getIconSprite(carried->speciesID(),
+                                                                                             carried->form(), carriedShiny);
+                            if (sprite && sprite->data)
+                                framebuffer.drawImageScaled(centerX - markerSize / 2, centerY - markerSize / 2,
+                                                            sprite->width, sprite->height, markerSize, markerSize,
+                                                            sprite->data, sprite->channels, 90);
+                            framebuffer.pkCarryGhost(slotX, slotY, slotSize, slotSize);
+                        }
+                    }
+                    else if (empty)
                     {
                         if (grabbed && carried)
                         {
@@ -251,8 +308,25 @@ namespace UI
                 }
             }
 
-            framebuffer.drawRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16, Colors::Border,
-                                        1);
+            if (!pk)
+                framebuffer.drawRoundedRect(boxPokemonX, boxPokemonY, boxPokemonWidth, boxPokemonHeight, 16,
+                                            Colors::Border, 1);
+
+            // PKForge: red corner brackets are THE grid selection; a carried mon rides above them.
+            if (pk)
+            {
+                const int slotSize = std::min(colPitch, rowPitch) - 8;
+                if (haveSel)
+                {
+                    if (carried)
+                        drawLiftedMon(framebuffer, carried, selCx, selDiscTop + selDiscR - slotSize / 5, selDiscR);
+                    framebuffer.pkSelection(selCx - slotSize / 2, selDiscTop + selDiscR - slotSize / 2, slotSize,
+                                            slotSize, Pksm::CursorRed);
+                }
+                else if (headerFocused)
+                    framebuffer.pkSelection(barX, barY, barW, barH, Pksm::CursorRed);
+                return;
+            }
 
             // Cursor last, over the finished grid: the same arrow the bank uses, in this view's own
             // colours -- indigo while browsing, amber while carrying, matching the rings it replaces.
@@ -301,10 +375,7 @@ namespace UI
 
             // Header band.
             constexpr int headerH = 40;
-            framebuffer.drawFilledRoundedRect(boxSummaryPanelX, boxSummaryPanelY, boxSummaryPanelWidth, headerH, 16,
-                                              Colors::AccentDim);
-            framebuffer.drawFilledRect(boxSummaryPanelX, boxSummaryPanelY + headerH - 16, boxSummaryPanelWidth, 16,
-                                       Colors::AccentDim);
+            framebuffer.drawCardBand(boxSummaryPanelX, boxSummaryPanelY, boxSummaryPanelWidth, headerH);
             {
                 int textWidth, textHeight;
                 framebuffer.measureText("Summary", textWidth, textHeight, TextStyle::Body);

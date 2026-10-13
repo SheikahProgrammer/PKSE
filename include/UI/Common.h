@@ -248,10 +248,74 @@ namespace UI
         RetroDS
     };
 
-    inline ThemeMode g_themeMode = ThemeMode::Dark;
+    // RetroDS is the PKForge look (the PKSM/DS storage world in PKForge's navy + cobalt + cyan). It is
+    // the default; Dark and Light remain as alternatives in Settings.
+    inline ThemeMode g_themeMode = ThemeMode::RetroDS;
+    inline bool isPkForgeTheme() { return g_themeMode == ThemeMode::RetroDS; }
+    // True for the colour the PKForge theme uses as "this surface is focused".
+    inline bool isPkForgeFocusFill(Color c);
+
+    // PKForge.Chrome/Pksm.cs tokens, verbatim. The PKForge chrome (PKSEFramebuffer::pk*) draws from
+    // these directly so it stays 1:1 with PKForge whatever the semantic palette is doing.
+    namespace Pksm
+    {
+        constexpr Color LogoVoid(0x14, 0x12, 0x1D);
+        constexpr Color LogoDeep(0x17, 0x1B, 0x32);
+        constexpr Color LogoDeck(0x1B, 0x24, 0x47);
+        constexpr Color LogoGrid(0x2B, 0x4E, 0x95);
+        constexpr Color LogoBlue(0x27, 0x89, 0xCD);
+        constexpr Color LogoCyan(0x42, 0xBF, 0xE8);
+        constexpr Color Ink(0xF4, 0xF8, 0xFF);
+        constexpr Color InkSoft(0xA8, 0xBA, 0xDC);
+        constexpr Color Housing = LogoDeck;
+        constexpr Color Paper = LogoDeck;
+        constexpr Color PaperShade = LogoDeep;
+        constexpr Color PaperEdge = LogoGrid;
+        constexpr Color HeaderBlue = LogoGrid;
+        constexpr Color SelectBorder = LogoCyan;
+        constexpr Color StoragePanel(0x1E, 0x46, 0x59);
+        constexpr Color StorageGreen(0x1B, 0x31, 0x46);
+        constexpr Color GiftPink(0x45, 0x24, 0x46);
+        constexpr Color GiftRed(0xE5, 0x68, 0x86);
+        constexpr Color Legal(0x54, 0xD6, 0x8A);
+        constexpr Color Illegal(0xF0, 0x68, 0x68);
+        constexpr Color ShinyGold(0xF2, 0xC1, 0x4E);
+        constexpr Color CursorRed(0xF0, 0x68, 0x68);
+        constexpr Color CursorGreen(0x54, 0xD6, 0x8A);
+        constexpr Color BandInfo(0xB0, 0x4E, 0x5C);
+        constexpr Color BandStats(0x2E, 0x72, 0xC2);
+        constexpr Color BandMoves(0xB8, 0x74, 0x34);
+        constexpr Color BandOrigin(0x26, 0x86, 0x88);
+        constexpr Color BandLegal(0x38, 0x8A, 0x58);
+
+        // Per-box wallpapers in the storage world: dark tinted worlds, cycling.
+        inline constexpr Color BoxWallpapers[8] = {
+            Color(0x1B, 0x31, 0x46), // jade navy
+            Color(0x1B, 0x2E, 0x58), // cobalt navy
+            Color(0x3B, 0x32, 0x38), // amber dusk
+            Color(0x42, 0x28, 0x3C), // coral dusk
+            Color(0x31, 0x29, 0x55), // violet navy
+            Color(0x18, 0x3A, 0x4A), // aqua navy
+            Color(0x40, 0x28, 0x4D), // rose navy
+            Color(0x2A, 0x3B, 0x38), // leaf navy
+        };
+        inline constexpr Color wallpaperAt(int boxIndex) { return BoxWallpapers[((boxIndex % 8) + 8) % 8]; }
+        // Pksm.WallpaperShade: the wallpaper lifted 24% (its grid lines and slot balls).
+        inline constexpr Color wallpaperShade(Color c)
+        {
+            return Color(static_cast<uint8_t>(c.red * 1.24f > 255 ? 255 : c.red * 1.24f),
+                         static_cast<uint8_t>(c.green * 1.24f > 255 ? 255 : c.green * 1.24f),
+                         static_cast<uint8_t>(c.blue * 1.24f > 255 ? 255 : c.blue * 1.24f));
+        }
+    }
 
     // Swap the semantic palette. Screens keep using Colors::Text/Panel/... and pick up
     // the change automatically on the next frame (everything redraws each frame).
+    inline bool isPkForgeFocusFill(Color c)
+    {
+        return isPkForgeTheme() && c.alpha == 255 && c.red == 0x42 && c.green == 0xBF && c.blue == 0xE9;
+    }
+
     inline void applyTheme(ThemeMode mode)
     {
         using namespace Colors;
@@ -295,23 +359,27 @@ namespace UI
             CursorMulti = Color(38, 150, 84);
         }
         else
-        { // RetroDS (PKSM / Nintendo DS authentic palette)
-            Background = Color(20, 18, 29);   // #14121D (LogoVoid)
-            Panel = Color(27, 36, 71);        // #1B2447 (LogoDeck / Paper)
-            PanelAlt = Color(23, 27, 50);     // #171B32 (LogoDeep / PaperShade)
-            Selected = Color(43, 78, 149);    // #2B4E95 (LogoGrid / SelectFill)
-            Border = Color(43, 78, 149);      // #2B4E95 (PaperEdge - cobalt)
-            Text = Color(244, 248, 255);      // #F4F8FF (Ink)
-            TextDim = Color(168, 186, 220);   // #A8BADC (InkSoft)
-            Accent = Color(66, 191, 232);     // #42BFE8 (LogoCyan / SelectBorder)
-            AccentDim = Color(39, 137, 205);  // #2789CD (LogoBlue)
-            Primary = Color(242, 193, 78);    // #F2C14E (ShinyGold)
-            PrimaryText = Color(20, 18, 29);
-            Warning = Color(242, 193, 78);
-            ShinyStar = Color(242, 193, 78);
-            CursorMenu = Color(240, 104, 104);
-            CursorMove = Color(66, 191, 232);
-            CursorMulti = Color(84, 214, 138);
+        { // PKForge (PKForge.App/Theme/UiTheme.cs UiTokens over PKForge.Chrome/Pksm.cs)
+            Background = Pksm::Housing; // the logo grid field; clear() draws the grid over it
+            Panel = Pksm::Paper;
+            PanelAlt = Pksm::PaperShade;
+            Selected = Pksm::LogoGrid;   // SelectFill
+            Border = Pksm::PaperEdge;    // the cobalt bezel
+            Text = Pksm::Ink;
+            TextDim = Pksm::InkSoft;
+            Accent = Pksm::SelectBorder; // the cyan focus light
+            AccentDim = Pksm::HeaderBlue; // header strips and filled accents are cobalt
+            // Focus. A FILLED Primary surface is drawn as PKForge's selected button (cobalt body, pale
+            // rim -- see PKSEFramebuffer); as text or an outline it is the cyan focus edge.
+            // One blue step off Accent so the framebuffer can tell a filled focus surface apart from
+            // an intentional cyan fill (hint discs, dots); visually identical.
+            Primary = Color(0x42, 0xBF, 0xE9);
+            PrimaryText = Pksm::Ink;
+            Warning = Pksm::ShinyGold;
+            ShinyStar = Pksm::ShinyGold; // gold is ONLY the shiny mark
+            CursorMenu = Pksm::CursorRed;
+            CursorMove = Pksm::SelectBorder;
+            CursorMulti = Pksm::CursorGreen;
         }
     }
 }

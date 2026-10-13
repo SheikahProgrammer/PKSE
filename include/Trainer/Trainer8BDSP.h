@@ -77,6 +77,7 @@ namespace Trainer
 
         /// Full flat save buffer (for writing back + MD5 rehash).
         const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
         /// Recompute the whole-file MD5 into BDSP_HASH_OFFSET (call before writing to disk).
         void recomputeHash();
     };

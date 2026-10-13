@@ -100,6 +100,9 @@ namespace UI
         // Get held item sprite by item ID. Returns nullptr if not found.
         static Sprite *getItemSprite(uint16_t itemId);
 
+        // A PKSM pixel icon from romfs:/ui/pksm/<name>.png (PKForge's PksmIcons, pre-tinted white).
+        static Sprite *getUiIcon(const std::string &name);
+
     private:
         static Sprite *loadSprite(const std::string &path);
         static Sprite *loadPokemonPixelSprite(uint16_t speciesId, uint8_t formId, bool isShiny);
@@ -127,6 +130,7 @@ namespace UI
         static std::map<uint8_t, Sprite *> typeSpriteCache;
         static std::map<uint8_t, Sprite *> ballSpriteCache;
         static std::map<uint16_t, Sprite *> itemSpriteCache;
+        static std::map<std::string, Sprite *> uiIconCache;
 
         // Origin marking cache: key = mark | (packed RGB << 8), so one mark can be held in more
         // than one tint without either evicting the other on a theme switch.

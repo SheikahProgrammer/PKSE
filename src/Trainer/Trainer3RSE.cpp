@@ -686,8 +686,13 @@ namespace Trainer
         // g3Encode writes 7 chars + a 0xFF terminator into 8 bytes, stopping before the gender byte at
         // 0x08; the UI has already rejected any name the Gen-3 glyph table can't store.
         const size_t smallBlockOffset = sectorOffset[SMALL_ID];
-        if (smallBlockOffset + 0x09 <= saveData.size())
+        if (smallBlockOffset + 0x0E <= saveData.size())
+        {
             g3Encode(this->trainerName, &saveData[smallBlockOffset + 0x00], 8, 7, languageId);
+            saveData[smallBlockOffset + 0x08] = this->trainerGender & 1;
+            writeUInt16LittleEndian(&saveData[smallBlockOffset + 0x0A], this->TID16);
+            writeUInt16LittleEndian(&saveData[smallBlockOffset + 0x0C], this->SID16);
+        }
         uint8_t moneyBuf[4];
         writeUInt32LittleEndian(moneyBuf, this->money ^ saveSecurityKey);
         writeBlock(LARGE_ID, OFS_MONEY, moneyBuf, 4);

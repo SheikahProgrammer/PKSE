@@ -30,7 +30,10 @@
 #include "UI/Panels/StoragePanel.h"
 #include "UI/Panels/HomeMenuPanel.h"
 #include "UI/Panels/EventGalleryPanel.h"
+#include "UI/Panels/TrainerCardPanel.h"
 #include "Events/EventDatabase.h"
+#include "Events/KeyItemEventService.h"
+#include "Events/MysteryGiftInbox.h"
 #include "UI/Dialogs/ItemEditDialog.h"
 #include "UI/Dialogs/SaveConfirmDialog.h"
 #include "UI/Dialogs/StatEditDialog.h"
@@ -609,10 +612,7 @@ namespace UI
         framebuffer.drawRoundedRect(settingsViewX, settingsViewY, settingsViewWidth, settingsViewHeight, 16,
                                     Colors::Border, 1);
         constexpr int headerHeight = 46;
-        framebuffer.drawFilledRoundedRect(settingsViewX, settingsViewY, settingsViewWidth, headerHeight, 16,
-                                          Colors::AccentDim);
-        framebuffer.drawFilledRect(settingsViewX, settingsViewY + headerHeight - 16, settingsViewWidth, 16,
-                                   Colors::AccentDim);
+        framebuffer.drawCardBand(settingsViewX, settingsViewY, settingsViewWidth, headerHeight);
         framebuffer.drawText(settingsViewX + 22,
                              settingsViewY + (headerHeight - framebuffer.lineHeight(TextStyle::Heading)) / 2,
                              "Settings", Colors::Text, TextStyle::Heading);
@@ -647,7 +647,7 @@ namespace UI
 
         std::string values[rowCount] = {
             g_autoBackupEnabled ? "On" : "Off",
-            (g_themeMode == ThemeMode::Dark) ? "Dark" : (g_themeMode == ThemeMode::Light ? "Light" : "Retro DS (Pixel)"),
+            (g_themeMode == ThemeMode::Dark) ? "Dark" : (g_themeMode == ThemeMode::Light ? "Light" : "PKForge"),
             spriteStyleStr,
             g_sdSpriteOverride ? "On" : "Off",
             g_allowIllegalEdits ? "On" : "Off",
@@ -713,81 +713,244 @@ namespace UI
         framebuffer.drawText(rowX, rectY + 6, "A: toggle     B: back", Colors::TextDim, TextStyle::Caption);
     }
 
-    // Trainer view (HOME-style ID card), reached from the HOME menu's Trainer icon. The first two
-    // rows (Name / Money) are editable; the rows below are informational -- editing TID/SID would
-    // re-own every Pokemon already in the save, so it is deliberately left out.
-    static void drawTrainerView(TrainerViewScreen &screen, PKSEFramebuffer &framebuffer, int trainerViewX,
-                                int trainerViewY, int trainerViewWidth, int trainerViewHeight)
+    void TrainerViewScreen::editTrainerTID()
     {
-        Trainer::Trainer &t = screen.trainer;
-        framebuffer.drawFilledRoundedRect(trainerViewX, trainerViewY, trainerViewWidth, trainerViewHeight, 16,
-                                          Colors::Panel);
-        framebuffer.drawRoundedRect(trainerViewX, trainerViewY, trainerViewWidth, trainerViewHeight, 16, Colors::Border,
-                                    1);
-        constexpr int headerHeight = 46;
-        framebuffer.drawFilledRoundedRect(trainerViewX, trainerViewY, trainerViewWidth, headerHeight, 16,
-                                          Colors::AccentDim);
-        framebuffer.drawFilledRect(trainerViewX, trainerViewY + headerHeight - 16, trainerViewWidth, 16,
-                                   Colors::AccentDim);
-        framebuffer.drawText(trainerViewX + 22,
-                             trainerViewY + (headerHeight - framebuffer.lineHeight(TextStyle::Heading)) / 2, "Trainer",
-                             Colors::Text, TextStyle::Heading);
+        const Utils::NumberResult promptResult =
+            Utils::promptNumber("Trainer ID (TID)", static_cast<int>(trainer.TID16), 0, 65535);
+        if (!promptResult.accepted)
+            return;
+        const uint16_t newTid = static_cast<uint16_t>(promptResult.value);
+        if (newTid == trainer.TID16)
+            return;
+        trainer.TID16 = newTid;
+        trainer.ID32 = (static_cast<uint32_t>(trainer.SID16) << 16) | trainer.TID16;
+        trainer.TID = trainer.ID32 % 1000000;
+        trainer.SID = trainer.ID32 / 1000000;
+        hasUnsavedChanges = true;
+        postStatus("Trainer ID set to #" + std::to_string(newTid) + ".", 150);
+    }
 
-        screen.touchButtons.clear();
+    void TrainerViewScreen::editTrainerSID()
+    {
+        const Utils::NumberResult promptResult =
+            Utils::promptNumber("Secret ID (SID)", static_cast<int>(trainer.SID16), 0, 65535);
+        if (!promptResult.accepted)
+            return;
+        const uint16_t newSid = static_cast<uint16_t>(promptResult.value);
+        if (newSid == trainer.SID16)
+            return;
+        trainer.SID16 = newSid;
+        trainer.ID32 = (static_cast<uint32_t>(trainer.SID16) << 16) | trainer.TID16;
+        trainer.TID = trainer.ID32 % 1000000;
+        trainer.SID = trainer.ID32 / 1000000;
+        hasUnsavedChanges = true;
+        postStatus("Secret ID set to #" + std::to_string(newSid) + ".", 150);
+    }
 
-        const int cardW = 680, cardX = trainerViewX + (trainerViewWidth - cardW) / 2;
-        int centerY = trainerViewY + headerHeight + 26;
+    // Append " Updated OT on N of your Pokemon." to a status line when a re-stamp touched any.
+    static std::string withOtRestampNote(std::string message, int count)
+    {
+        if (count > 0)
+            message += " Updated OT on " + std::to_string(count) + " of your Pokemon.";
+        return message;
+    }
 
-        // --- Editable rows (Name / Money): selectable via cursor + touch, styled like Settings.
-        // Gender is display-only, so it sits with the identity rows below rather than leaving a hole
-        // the cursor has to jump over. ---
-        constexpr int editRowCount = 2;
-        const char *labels[editRowCount] = {"Name", "Money"};
-        const std::string values[editRowCount] = {
-            t.trainerName.empty() ? "(none)" : t.trainerName,
-            "$" + std::to_string(t.money),
-        };
-        const int rowH = 60;
-        for (int index = 0; index < editRowCount; ++index)
+    void TrainerViewScreen::toggleTrainerGender()
+    {
+        trainer.trainerGender = (trainer.trainerGender == 0) ? 1 : 0;
+        const std::u16string name = Utils::utf8ToUtf16(trainer.trainerName);
+        const int count = restampCaughtPokemonIdentity(name);
+        hasUnsavedChanges = true;
+        postStatus(withOtRestampNote(trainer.trainerGender == 1 ? "Gender set to Female." : "Gender set to Male.", count), 160);
+    }
+
+    void TrainerViewScreen::setTrainerMaxMoney()
+    {
+        trainer.money = trainer.getMaxMoney();
+        hasUnsavedChanges = true;
+        postStatus("Money maxed out to $" + std::to_string(trainer.money) + "!", 150);
+    }
+
+    void TrainerViewScreen::toggleBadge(int badgeIdx)
+    {
+        if (badgeIdx < 0 || badgeIdx >= 8) return;
+        trainerCardBadgesCache ^= (1 << badgeIdx);
+        Panels::writeSaveBadges(*this, trainerCardBadgesCache);
+        hasUnsavedChanges = true;
+        const bool earned = (trainerCardBadgesCache & (1 << badgeIdx)) != 0;
+        postStatus(earned ? "Gym Badge earned!" : "Gym Badge cleared.", 120);
+    }
+
+    void TrainerViewScreen::unlockAllBadges()
+    {
+        if (trainerCardBadgesCache == 0xFF)
+            trainerCardBadgesCache = 0x00;
+        else
+            trainerCardBadgesCache = 0xFF;
+        Panels::writeSaveBadges(*this, trainerCardBadgesCache);
+        hasUnsavedChanges = true;
+        postStatus((trainerCardBadgesCache == 0xFF) ? "All 8 Gym Badges unlocked!" : "All Gym Badges cleared.", 160);
+    }
+
+    void TrainerViewScreen::handleTrainerCardInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        int touchedButton = touchedButtonId(touch);
+
+        // Touch handling
+        if (touchedButton >= 0)
         {
-            const bool selectedIndex = (screen.trainerSelectedRow == index);
-            framebuffer.drawSoftShadow(cardX, centerY, cardW, rowH, 14);
-            framebuffer.drawFilledRoundedRect(cardX, centerY, cardW, rowH, 14,
-                                              selectedIndex ? Colors::Selected : Colors::PanelAlt);
-            if (selectedIndex)
-                framebuffer.drawRoundedRect(cardX, centerY, cardW, rowH, 14, Colors::Accent, 2);
-            framebuffer.drawText(cardX + 24, centerY + (rowH - framebuffer.lineHeight(TextStyle::Body)) / 2,
-                                 labels[index], Colors::TextDim, TextStyle::Body);
-            int valueWidth, vh;
-            framebuffer.measureText(values[index], valueWidth, vh, TextStyle::Body);
-            const int pillW = valueWidth + 44, pillH = 38;
-            const int panelX = cardX + cardW - pillW - 20, py = centerY + (rowH - pillH) / 2;
-            framebuffer.drawPill(panelX, py, pillW, pillH, selectedIndex ? Colors::Primary : Colors::Background);
-            framebuffer.drawText(panelX + (pillW - valueWidth) / 2, py + (pillH - vh) / 2, values[index],
-                                 selectedIndex ? Colors::PrimaryText : Colors::Text, TextStyle::Body);
-            screen.touchButtons.push_back({index, cardX, centerY, cardW, rowH});
-            centerY += rowH + 14;
+            if (touchedButton == 0) // Name
+            {
+                trainerSelectedRow = 0;
+                editTrainerName();
+                return;
+            }
+            if (touchedButton == 1) // Money
+            {
+                trainerSelectedRow = 1;
+                editTrainerMoney();
+                return;
+            }
+            if (touchedButton == 2) // Gender
+            {
+                trainerSelectedRow = 2;
+                toggleTrainerGender();
+                return;
+            }
+            if (touchedButton == 3) // TID
+            {
+                trainerSelectedRow = 3;
+                editTrainerTID();
+                return;
+            }
+            if (touchedButton == 4) // SID
+            {
+                trainerSelectedRow = 4;
+                editTrainerSID();
+                return;
+            }
+            if (touchedButton == 5) // Max Money
+            {
+                trainerSelectedRow = 5;
+                setTrainerMaxMoney();
+                return;
+            }
+            if (touchedButton == 6) // Toggle All Badges
+            {
+                trainerSelectedRow = 6;
+                unlockAllBadges();
+                return;
+            }
+            if (touchedButton >= 200 && touchedButton <= 207) // Individual Badges
+            {
+                const int badgeIdx = touchedButton - 200;
+                trainerSelectedRow = 10 + badgeIdx;
+                toggleBadge(badgeIdx);
+                return;
+            }
+            if (touchedButton >= 300 && touchedButton <= 305) // Party members
+            {
+                const size_t slot = static_cast<size_t>(touchedButton - 300);
+                if (slot < trainer.party.size() && trainer.party[slot] && trainer.party[slot]->speciesID() != 0)
+                {
+                    selectedPartyIndex = static_cast<int>(slot);
+                    details.category = 0;
+                    details.selectedField = 0;
+                    details.active = true;
+                    snapshotEditTarget();
+                }
+                return;
+            }
         }
 
-        centerY += 6;
-        framebuffer.drawHDivider(cardX + 20, centerY, cardW - 40);
-        centerY += 20;
-
-        auto infoRow = [&](const char *label, const std::string &value)
+        // Controller Navigation:
+        // Rows:
+        // 0: Name, 1: Money, 2: Gender, 3: TID, 4: SID, 5: Max Money, 6: Unlock All Badges, 10..17: Badges (0..7)
+        if (buttonsDown & HidNpadButton_Down)
         {
-            framebuffer.drawFilledRoundedRect(cardX, centerY, cardW, 46, 12, Colors::PanelAlt);
-            framebuffer.drawText(cardX + 24, centerY + (46 - framebuffer.lineHeight(TextStyle::Body)) / 2, label,
-                                 Colors::TextDim, TextStyle::Body);
-            int valueWidth, vh;
-            framebuffer.measureText(value, valueWidth, vh, TextStyle::Body);
-            framebuffer.drawText(cardX + cardW - 24 - valueWidth, centerY + (46 - vh) / 2, value, Colors::Text,
-                                 TextStyle::Body);
-            centerY += 54;
-        };
-        infoRow("Gender", t.trainerGender == 0 ? "Male" : "Female");
-        infoRow("Trainer ID", std::to_string(t.TID16) + " / " + std::to_string(t.SID16));
-        infoRow("Full TID", std::to_string(t.TID));
-        infoRow("Full SID", std::to_string(t.SID));
+            if (trainerSelectedRow < 6)
+                trainerSelectedRow = (trainerSelectedRow + 1) % 7;
+            else if (trainerSelectedRow == 6)
+                trainerSelectedRow = 10; // Jump to first badge
+            else if (trainerSelectedRow >= 10 && trainerSelectedRow <= 17)
+                trainerSelectedRow = 0; // Wrap back to Name
+        }
+        if (buttonsDown & HidNpadButton_Up)
+        {
+            if (trainerSelectedRow > 0 && trainerSelectedRow <= 6)
+                trainerSelectedRow--;
+            else if (trainerSelectedRow == 0)
+                trainerSelectedRow = 10; // Jump to badges
+            else if (trainerSelectedRow >= 10 && trainerSelectedRow <= 17)
+                trainerSelectedRow = 6; // Jump to Unlock All Badges
+        }
+        if (buttonsDown & HidNpadButton_Right)
+        {
+            if (trainerSelectedRow == 0) trainerSelectedRow = 1;
+            else if (trainerSelectedRow == 1) trainerSelectedRow = 5;
+            else if (trainerSelectedRow == 2) trainerSelectedRow = 3;
+            else if (trainerSelectedRow == 3) trainerSelectedRow = 4;
+            else if (trainerSelectedRow >= 10 && trainerSelectedRow < 17) trainerSelectedRow++;
+            else if (trainerSelectedRow == 17) trainerSelectedRow = 10;
+        }
+        if (buttonsDown & HidNpadButton_Left)
+        {
+            if (trainerSelectedRow == 5) trainerSelectedRow = 1;
+            else if (trainerSelectedRow == 1) trainerSelectedRow = 0;
+            else if (trainerSelectedRow == 4) trainerSelectedRow = 3;
+            else if (trainerSelectedRow == 3) trainerSelectedRow = 2;
+            else if (trainerSelectedRow > 10 && trainerSelectedRow <= 17) trainerSelectedRow--;
+            else if (trainerSelectedRow == 10) trainerSelectedRow = 17;
+        }
+
+        // [Y] Quick Max Money shortcut
+        if (buttonsDown & HidNpadButton_Y)
+        {
+            setTrainerMaxMoney();
+            return;
+        }
+
+        // [X] Unlock/Toggle All Badges shortcut
+        if (buttonsDown & HidNpadButton_X)
+        {
+            unlockAllBadges();
+            return;
+        }
+
+        // [A] Activate focused element
+        if (buttonsDown & HidNpadButton_A)
+        {
+            switch (trainerSelectedRow)
+            {
+            case 0:
+                pendingTrainerEdit = 0; // Name
+                break;
+            case 1:
+                pendingTrainerEdit = 1; // Money
+                break;
+            case 2:
+                toggleTrainerGender();
+                break;
+            case 3:
+                pendingTrainerEdit = 3; // TID
+                break;
+            case 4:
+                pendingTrainerEdit = 4; // SID
+                break;
+            case 5:
+                setTrainerMaxMoney();
+                break;
+            case 6:
+                unlockAllBadges();
+                break;
+            default:
+                if (trainerSelectedRow >= 10 && trainerSelectedRow <= 17)
+                {
+                    toggleBadge(trainerSelectedRow - 10);
+                }
+                break;
+            }
+        }
     }
 
     TrainerViewScreen::TrainerViewScreen(Trainer::Trainer &trainer, const std::string &titleName,
@@ -831,6 +994,9 @@ namespace UI
                        480);
         }
 
+        // Initialize Poképark Living Habitat
+        UI::PokeparkManager::instance().initialize(&trainer, bank.get());
+
         // Open the test trace with everything needed to interpret the rest of the run: which build,
         // which game, where the save came from, and the state of every setting that changes
         // behaviour. Without this a trace is a list of actions with no way to judge them.
@@ -849,7 +1015,7 @@ namespace UI
             " illegal=" + (g_allowIllegalEdits ? "ON" : "OFF") +
             " autobackup=" + (g_autoBackupEnabled ? "ON" : "OFF") +
             " movewarn=" + (g_moveWarn ? "ON" : "OFF") +
-            " theme=" + (g_themeMode == ThemeMode::Dark ? "dark" : (g_themeMode == ThemeMode::Light ? "light" : "retrods"));
+            " theme=" + (g_themeMode == ThemeMode::Dark ? "dark" : (g_themeMode == ThemeMode::Light ? "light" : "pkforge"));
         Utils::logTestSession(sessionInfo);
         Utils::logEventToFile("SESSION " + sessionInfo);
         if (bank)
@@ -2152,14 +2318,6 @@ namespace UI
         return changed;
     }
 
-    // Append " Updated OT on N of your Pokemon." to a status line when a re-stamp touched any.
-    static std::string withOtRestampNote(std::string message, int count)
-    {
-        if (count > 0)
-            message += " Updated OT on " + std::to_string(count) + " of your Pokemon.";
-        return message;
-    }
-
     // Edit the trainer's OT name via the Switch keyboard. Mirrors renameBox: a cancel leaves the
     // name untouched, an unchanged result is a no-op, and a name the game's glyph table can't store is
     // refused rather than silently mangled (Gen 3 has ~70 glyphs; canStoreBoxName is the shared check).
@@ -2398,134 +2556,257 @@ namespace UI
 
     void TrainerViewScreen::handleMysteryGiftInput(u64 buttonsDown, const TouchInput &touch)
     {
-        const int totalCount = static_cast<int>(filteredEvents.size());
-
         if (buttonsDown & HidNpadButton_B)
         {
             detailViewActive = false;
             return;
         }
 
-        if (buttonsDown & HidNpadButton_Up)
-        {
-            if (eventSelectedIndex > 0)
-            {
-                eventSelectedIndex--;
-            }
-            else if (totalCount > 0)
-            {
-                eventSelectedIndex = totalCount - 1;
-            }
-        }
-        if (buttonsDown & HidNpadButton_Down)
-        {
-            if (eventSelectedIndex + 1 < totalCount)
-            {
-                eventSelectedIndex++;
-            }
-            else
-            {
-                eventSelectedIndex = 0;
-            }
-        }
-
-        if (buttonsDown & HidNpadButton_L)
-        {
-            eventSelectedIndex = std::max(0, eventSelectedIndex - 7);
-        }
-        if (buttonsDown & HidNpadButton_R)
-        {
-            eventSelectedIndex = std::min(std::max(0, totalCount - 1), eventSelectedIndex + 7);
-        }
-
+        // Tab switching via ZL / ZR
         if (buttonsDown & HidNpadButton_ZL)
         {
-            eventSelectedIndex = std::max(0, eventSelectedIndex - 25);
+            eventTabMode = (eventTabMode == 0) ? 2 : eventTabMode - 1;
+            return;
         }
         if (buttonsDown & HidNpadButton_ZR)
         {
-            eventSelectedIndex = std::min(std::max(0, totalCount - 1), eventSelectedIndex + 25);
-        }
-
-        if (buttonsDown & HidNpadButton_Y)
-        {
-            eventFilterCurrentGame = !eventFilterCurrentGame;
-            eventSelectedIndex = 0;
-            eventScrollOffset = 0;
-            refreshEventList();
-        }
-
-        if (buttonsDown & HidNpadButton_X)
-        {
-            const Utils::KeyboardResult promptResult =
-                Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
-            if (promptResult.accepted)
-            {
-                eventSearchQuery = promptResult.text;
-                eventSelectedIndex = 0;
-                eventScrollOffset = 0;
-                refreshEventList();
-            }
+            eventTabMode = (eventTabMode == 2) ? 0 : eventTabMode + 1;
+            return;
         }
 
         const int hitId = touchedButtonId(touch);
-        if (hitId >= 3000 && hitId < 3000 + totalCount)
+        if (hitId == 2100) { eventTabMode = 0; return; }
+        if (hitId == 2101) { eventTabMode = 1; return; }
+        if (hitId == 2102) { eventTabMode = 2; return; }
+
+        // =========================================================================
+        // MODE 0: DISTRIBUTION GALLERY
+        // =========================================================================
+        if (eventTabMode == 0)
         {
-            eventSelectedIndex = hitId - 3000;
-        }
-        else if (hitId == 2001)
-        {
-            eventFilterCurrentGame = !eventFilterCurrentGame;
-            eventSelectedIndex = 0;
-            eventScrollOffset = 0;
-            refreshEventList();
-        }
-        else if (hitId == 2002)
-        {
-            const Utils::KeyboardResult promptResult =
-                Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
-            if (promptResult.accepted)
+            const int totalCount = static_cast<int>(filteredEvents.size());
+
+            if (buttonsDown & HidNpadButton_Up)
             {
-                eventSearchQuery = promptResult.text;
+                if (eventSelectedIndex > 0)
+                {
+                    eventSelectedIndex--;
+                }
+                else if (totalCount > 0)
+                {
+                    eventSelectedIndex = totalCount - 1;
+                }
+            }
+            if (buttonsDown & HidNpadButton_Down)
+            {
+                if (eventSelectedIndex + 1 < totalCount)
+                {
+                    eventSelectedIndex++;
+                }
+                else
+                {
+                    eventSelectedIndex = 0;
+                }
+            }
+
+            if (buttonsDown & HidNpadButton_L)
+            {
+                eventSelectedIndex = std::max(0, eventSelectedIndex - 7);
+            }
+            if (buttonsDown & HidNpadButton_R)
+            {
+                eventSelectedIndex = std::min(std::max(0, totalCount - 1), eventSelectedIndex + 7);
+            }
+
+            if (buttonsDown & HidNpadButton_Y)
+            {
+                eventFilterCurrentGame = !eventFilterCurrentGame;
                 eventSelectedIndex = 0;
                 eventScrollOffset = 0;
                 refreshEventList();
             }
-        }
-        else if (hitId == 1001)
-        {
-            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
-            {
-                receiveEvent(filteredEvents[eventSelectedIndex], 0);
-            }
-        }
-        else if (hitId == 1002)
-        {
-            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
-            {
-                receiveEvent(filteredEvents[eventSelectedIndex], 1);
-            }
-        }
-        else if (hitId == 1003)
-        {
-            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
-            {
-                receiveEvent(filteredEvents[eventSelectedIndex], 2);
-            }
-        }
 
-        if (buttonsDown & HidNpadButton_A)
-        {
-            if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+            if (buttonsDown & HidNpadButton_X)
             {
-                auto &db = Events::EventDatabase::getInstance();
-                const auto *rec = db.getEvent(filteredEvents[eventSelectedIndex]);
-                if (rec)
+                const Utils::KeyboardResult promptResult =
+                    Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
+                if (promptResult.accepted)
                 {
-                    bool compat = Events::EventDatabase::isCompatibleWithGame(*rec, trainer.getGameGroup());
-                    receiveEvent(filteredEvents[eventSelectedIndex], compat ? 0 : 2);
+                    eventSearchQuery = promptResult.text;
+                    eventSelectedIndex = 0;
+                    eventScrollOffset = 0;
+                    refreshEventList();
                 }
             }
+
+            if (hitId >= 3000 && hitId < 3000 + totalCount)
+            {
+                eventSelectedIndex = hitId - 3000;
+            }
+            else if (hitId == 2001)
+            {
+                eventFilterCurrentGame = !eventFilterCurrentGame;
+                eventSelectedIndex = 0;
+                eventScrollOffset = 0;
+                refreshEventList();
+            }
+            else if (hitId == 2002)
+            {
+                const Utils::KeyboardResult promptResult =
+                    Utils::promptText("Search Events", "Pokemon name, event title...", eventSearchQuery, 32);
+                if (promptResult.accepted)
+                {
+                    eventSearchQuery = promptResult.text;
+                    eventSelectedIndex = 0;
+                    eventScrollOffset = 0;
+                    refreshEventList();
+                }
+            }
+            else if (hitId == 1001)
+            {
+                if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+                {
+                    receiveEvent(filteredEvents[eventSelectedIndex], 0);
+                }
+            }
+            else if (hitId == 1002)
+            {
+                if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+                {
+                    receiveEvent(filteredEvents[eventSelectedIndex], 1);
+                }
+            }
+            else if (hitId == 1003)
+            {
+                if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+                {
+                    receiveEvent(filteredEvents[eventSelectedIndex], 2);
+                }
+            }
+
+            if (buttonsDown & HidNpadButton_A)
+            {
+                if (eventSelectedIndex >= 0 && eventSelectedIndex < totalCount)
+                {
+                    auto &db = Events::EventDatabase::getInstance();
+                    const auto *rec = db.getEvent(filteredEvents[eventSelectedIndex]);
+                    if (rec)
+                    {
+                        bool compat = Events::EventDatabase::isCompatibleWithGame(*rec, trainer.getGameGroup());
+                        receiveEvent(filteredEvents[eventSelectedIndex], compat ? 0 : 2);
+                    }
+                }
+            }
+            return;
+        }
+
+        // =========================================================================
+        // MODE 1: KEY ITEM SCRIPT EVENTS
+        // =========================================================================
+        if (eventTabMode == 1)
+        {
+            auto keyEvents = Events::KeyItemEventService::getEvents(trainer);
+            const int totalCount = static_cast<int>(keyEvents.size());
+
+            if (buttonsDown & HidNpadButton_Up)
+            {
+                if (keyEventSelectedIndex > 0) keyEventSelectedIndex--;
+                else if (totalCount > 0) keyEventSelectedIndex = totalCount - 1;
+            }
+            if (buttonsDown & HidNpadButton_Down)
+            {
+                if (keyEventSelectedIndex + 1 < totalCount) keyEventSelectedIndex++;
+                else keyEventSelectedIndex = 0;
+            }
+            if (buttonsDown & HidNpadButton_L)
+            {
+                keyEventSelectedIndex = std::max(0, keyEventSelectedIndex - 5);
+            }
+            if (buttonsDown & HidNpadButton_R)
+            {
+                keyEventSelectedIndex = std::min(std::max(0, totalCount - 1), keyEventSelectedIndex + 5);
+            }
+
+            if (hitId >= 4000 && hitId < 4000 + totalCount)
+            {
+                keyEventSelectedIndex = hitId - 4000;
+            }
+
+            if (keyEventConfirmActive)
+            {
+                if (hitId == 1 && armTap(hitId, HidNpadButton_A)) return;
+                if (hitId == 0 && armTap(hitId, HidNpadButton_B)) return;
+                if (buttonsDown & HidNpadButton_A)
+                {
+                    keyEventConfirmActive = false;
+                    if (keyEventSelectedIndex >= 0 && keyEventSelectedIndex < totalCount)
+                    {
+                        const auto &ev = keyEvents[keyEventSelectedIndex];
+                        std::string message;
+                        const bool ok = keyEventConfirmEnable
+                                            ? Events::KeyItemEventService::enableEvent(trainer, ev.id, message)
+                                            : Events::KeyItemEventService::disableEvent(trainer, ev.id, message);
+                        if (ok)
+                            hasUnsavedChanges = true;
+                        postStatus(message, 360);
+                    }
+                }
+                else if (buttonsDown & HidNpadButton_B)
+                    keyEventConfirmActive = false;
+                return;
+            }
+
+            // [A] Enable / [X] Disable: offered as in PKForge, confirmed before anything is written.
+            if (keyEventSelectedIndex >= 0 && keyEventSelectedIndex < totalCount)
+            {
+                const auto &ev = keyEvents[keyEventSelectedIndex];
+                if (((buttonsDown & HidNpadButton_A) || hitId == 1101) && ev.state != Events::KeyItemEventState::Enabled)
+                {
+                    keyEventConfirmActive = true;
+                    keyEventConfirmEnable = true;
+                }
+                else if (((buttonsDown & HidNpadButton_X) || hitId == 1102) && (ev.hasItem || ev.eventArmed))
+                {
+                    keyEventConfirmActive = true;
+                    keyEventConfirmEnable = false;
+                }
+            }
+            return;
+        }
+
+        // =========================================================================
+        // MODE 2: SAVE FILE WONDER CARD INBOX
+        // =========================================================================
+        if (eventTabMode == 2)
+        {
+            auto inboxCards = Events::MysteryGiftInbox::getInboxCards(trainer);
+            const int totalCount = static_cast<int>(inboxCards.size());
+
+            if (buttonsDown & HidNpadButton_Up)
+            {
+                if (inboxSelectedIndex > 0) inboxSelectedIndex--;
+                else if (totalCount > 0) inboxSelectedIndex = totalCount - 1;
+            }
+            if (buttonsDown & HidNpadButton_Down)
+            {
+                if (inboxSelectedIndex + 1 < totalCount) inboxSelectedIndex++;
+                else inboxSelectedIndex = 0;
+            }
+            if (buttonsDown & HidNpadButton_L)
+            {
+                inboxSelectedIndex = std::max(0, inboxSelectedIndex - 6);
+            }
+            if (buttonsDown & HidNpadButton_R)
+            {
+                inboxSelectedIndex = std::min(std::max(0, totalCount - 1), inboxSelectedIndex + 6);
+            }
+
+            if (hitId >= 5000 && hitId < 5000 + totalCount)
+            {
+                inboxSelectedIndex = hitId - 5000;
+            }
+
+            return;
         }
     }
 
@@ -2628,6 +2909,11 @@ namespace UI
                     livingDexCursor = slotIdx;
                 }
             }
+            return;
+        }
+        if (touchedId == 3998 || (livingDexModalActive && (buttonsDown & HidNpadButton_X)))
+        {
+            openEncounterLookup(livingDexModalSpecies, 0);
             return;
         }
         if (touchedId == 3999)
@@ -2768,6 +3054,315 @@ namespace UI
             {
                 livingDexModalSpecies = livingDexFilteredIds[absoluteIdx];
                 livingDexModalActive = true;
+            }
+        }
+    }
+
+    void TrainerViewScreen::handlePokeparkInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        auto &mgr = UI::PokeparkManager::instance();
+        auto visibleIndices = mgr.getVisibleResidentIndices(mgr.getCurrentHabitat());
+        int touchedId = touchedButtonId(touch);
+
+        // 1. Dialogue overlay active
+        if (!pokeparkDialogueText.empty())
+        {
+            if ((buttonsDown & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_X | HidNpadButton_Y)) || touchedId == 350)
+            {
+                pokeparkDialogueText.clear();
+                pokeparkDialogueTimer = 0.0f;
+            }
+            return;
+        }
+
+        // 2. Adventure Journal modal active
+        if (pokeparkJournalActive)
+        {
+            if (buttonsDown & (HidNpadButton_B | HidNpadButton_Y))
+            {
+                pokeparkJournalActive = false;
+                return;
+            }
+            const auto &journal = mgr.getJournal();
+            int maxScroll = std::max(0, static_cast<int>(journal.size()) - 6);
+            if (buttonsDown & HidNpadButton_Up)
+            {
+                if (pokeparkJournalScroll > 0) pokeparkJournalScroll--;
+            }
+            if (buttonsDown & HidNpadButton_Down)
+            {
+                if (pokeparkJournalScroll < maxScroll) pokeparkJournalScroll++;
+            }
+            if (buttonsDown & HidNpadButton_Left)
+            {
+                pokeparkJournalScroll = std::max(0, pokeparkJournalScroll - 5);
+            }
+            if (buttonsDown & HidNpadButton_Right)
+            {
+                pokeparkJournalScroll = std::min(maxScroll, pokeparkJournalScroll + 5);
+            }
+            return;
+        }
+
+        // 3. Resident Profile Card active
+        if (pokeparkCardActive)
+        {
+            if (buttonsDown & HidNpadButton_B)
+            {
+                pokeparkCardActive = false;
+                return;
+            }
+
+            int actionTrigger = -1;
+            if (buttonsDown & HidNpadButton_Left)
+            {
+                pokeparkCardActionSelected = (pokeparkCardActionSelected - 1 + 4) % 4;
+            }
+            if (buttonsDown & HidNpadButton_Right)
+            {
+                pokeparkCardActionSelected = (pokeparkCardActionSelected + 1) % 4;
+            }
+            if (buttonsDown & HidNpadButton_A)
+            {
+                actionTrigger = pokeparkCardActionSelected;
+            }
+            if (buttonsDown & HidNpadButton_X)
+            {
+                actionTrigger = 1; // Play
+            }
+            if (buttonsDown & HidNpadButton_Y)
+            {
+                actionTrigger = 2; // Snack
+            }
+            if (buttonsDown & (HidNpadButton_R | HidNpadButton_ZR))
+            {
+                actionTrigger = 3; // Relax
+            }
+
+            if (touchedId >= 300 && touchedId <= 303)
+            {
+                actionTrigger = touchedId - 300;
+            }
+
+            if (actionTrigger >= 0 && actionTrigger < 4 && !visibleIndices.empty())
+            {
+                if (pokeparkSelectedResident >= 0 && pokeparkSelectedResident < static_cast<int>(visibleIndices.size()))
+                {
+                    const char *actNames[4] = {"talk", "play", "snack", "relax"};
+                    int rIdx = visibleIndices[pokeparkSelectedResident];
+                    pokeparkDialogueText = mgr.interact(rIdx, actNames[actionTrigger]);
+                    pokeparkDialogueTimer = 5.0f;
+                }
+            }
+            return;
+        }
+
+        // 4. Roaming Habitat View
+        if (touchedId >= 200 && touchedId < 250)
+        {
+            int vi = touchedId - 200;
+            if (vi >= 0 && vi < static_cast<int>(visibleIndices.size()))
+            {
+                if (pokeparkSelectedResident == vi)
+                {
+                    pokeparkCardActive = true;
+                    pokeparkCardActionSelected = 0;
+                }
+                else
+                {
+                    pokeparkSelectedResident = vi;
+                }
+            }
+            return;
+        }
+        if (touchedId == 250 || (buttonsDown & HidNpadButton_L))
+        {
+            mgr.cycleHabitat(-1);
+            pokeparkSelectedResident = 0;
+            return;
+        }
+        if (touchedId == 251 || (buttonsDown & HidNpadButton_R))
+        {
+            mgr.cycleHabitat(1);
+            pokeparkSelectedResident = 0;
+            return;
+        }
+        if (touchedId == 260 || (buttonsDown & HidNpadButton_Y))
+        {
+            pokeparkJournalActive = true;
+            pokeparkJournalScroll = 0;
+            return;
+        }
+
+        if (buttonsDown & HidNpadButton_Left)
+        {
+            if (!visibleIndices.empty())
+                pokeparkSelectedResident = (pokeparkSelectedResident - 1 + static_cast<int>(visibleIndices.size())) % static_cast<int>(visibleIndices.size());
+        }
+        if (buttonsDown & HidNpadButton_Right)
+        {
+            if (!visibleIndices.empty())
+                pokeparkSelectedResident = (pokeparkSelectedResident + 1) % static_cast<int>(visibleIndices.size());
+        }
+
+        if (buttonsDown & HidNpadButton_A)
+        {
+            if (!visibleIndices.empty())
+            {
+                pokeparkCardActive = true;
+                pokeparkCardActionSelected = 0;
+            }
+        }
+        else if (buttonsDown & HidNpadButton_X)
+        {
+            // Quick Talk
+            if (!visibleIndices.empty() && pokeparkSelectedResident >= 0 && pokeparkSelectedResident < static_cast<int>(visibleIndices.size()))
+            {
+                int rIdx = visibleIndices[pokeparkSelectedResident];
+                pokeparkDialogueText = mgr.interact(rIdx, "talk");
+                pokeparkDialogueTimer = 5.0f;
+            }
+        }
+        else if (buttonsDown & HidNpadButton_B)
+        {
+            detailViewActive = false;
+        }
+    }
+
+    void TrainerViewScreen::openEncounterLookup(uint16_t speciesId, uint8_t formId)
+    {
+        encounterLookupActive = true;
+        encounterLookupSpecies = speciesId;
+        encounterLookupForm = formId;
+        encounterLookupScroll = 0;
+        encounterLookupSelectedRow = 0;
+        encounterLookupScope = 0; // default ALL (36 games)
+    }
+
+    void TrainerViewScreen::handleEncounterLookupInput(u64 buttonsDown, const TouchInput &touch)
+    {
+        int touchedId = touchedButtonId(touch);
+
+        // B or Touch Close button (4999) closes modal
+        if ((buttonsDown & HidNpadButton_B) || touchedId == 4999)
+        {
+            encounterLookupActive = false;
+            return;
+        }
+
+        // Touch Scope Tabs: 4000..4010
+        if (touchedId >= 4000 && touchedId <= 4010)
+        {
+            encounterLookupScope = touchedId - 4000;
+            encounterLookupSelectedRow = 0;
+            encounterLookupScroll = 0;
+            return;
+        }
+
+        // L / R: cycle scope tabs
+        if (buttonsDown & HidNpadButton_L)
+        {
+            encounterLookupScope = (encounterLookupScope - 1 + 11) % 11;
+            encounterLookupSelectedRow = 0;
+            encounterLookupScroll = 0;
+            return;
+        }
+        if (buttonsDown & HidNpadButton_R)
+        {
+            encounterLookupScope = (encounterLookupScope + 1) % 11;
+            encounterLookupSelectedRow = 0;
+            encounterLookupScroll = 0;
+            return;
+        }
+
+        // Query current result to know route count
+        int queryScope = -1;
+        if (encounterLookupScope == 1)
+            queryScope = 0;
+        else if (encounterLookupScope >= 2 && encounterLookupScope <= 10)
+            queryScope = encounterLookupScope - 1;
+
+        auto result = Legality::queryEncountersForSpecies(encounterLookupSpecies, encounterLookupForm, queryScope, trainer.getGameGroup());
+        const int routeCount = static_cast<int>(result.routes.size());
+
+        // Touch Row: 4100..4104
+        if (touchedId >= 4100 && touchedId <= 4104)
+        {
+            int rowOffset = touchedId - 4100;
+            int absoluteRow = encounterLookupScroll + rowOffset;
+            if (absoluteRow >= 0 && absoluteRow < routeCount)
+            {
+                if (encounterLookupSelectedRow == absoluteRow)
+                {
+                    // Tapped already selected row -> trigger Catch!
+                    buttonsDown |= HidNpadButton_A;
+                }
+                else
+                {
+                    encounterLookupSelectedRow = absoluteRow;
+                    return;
+                }
+            }
+        }
+
+        // Up / Down navigation
+        if (buttonsDown & HidNpadButton_Up)
+        {
+            if (encounterLookupSelectedRow > 0)
+                encounterLookupSelectedRow--;
+            if (encounterLookupSelectedRow < encounterLookupScroll)
+                encounterLookupScroll = encounterLookupSelectedRow;
+        }
+        if (buttonsDown & HidNpadButton_Down)
+        {
+            if (encounterLookupSelectedRow + 1 < routeCount)
+                encounterLookupSelectedRow++;
+            constexpr int rowsPerPage = 5;
+            if (encounterLookupSelectedRow >= encounterLookupScroll + rowsPerPage)
+                encounterLookupScroll = encounterLookupSelectedRow - rowsPerPage + 1;
+        }
+
+        // A: Catch & Materialize into active save!
+        if ((buttonsDown & HidNpadButton_A) && routeCount > 0)
+        {
+            if (encounterLookupSelectedRow >= 0 && encounterLookupSelectedRow < routeCount)
+            {
+                const auto &entry = result.routes[encounterLookupSelectedRow];
+                if (!Legality::canMaterializeInSave(trainer, entry.rawRow.species, entry.form))
+                {
+                    postStatus("Cannot catch: " + result.speciesName + " is not supported in " + titleName + ".", 300);
+                    return;
+                }
+
+                auto mon = Legality::materializeEncounter(trainer, titleId, entry);
+                if (!mon)
+                {
+                    postStatus("Failed to materialize Pokémon encounter.", 240);
+                    return;
+                }
+
+                // Place into first empty slot in trainer.boxes
+                bool placed = false;
+                for (size_t b = 0; b < trainer.boxes.size() && !placed; ++b)
+                {
+                    for (size_t s = 0; s < trainer.boxes[b].size() && !placed; ++s)
+                    {
+                        if (!trainer.boxes[b][s] || trainer.boxes[b][s]->speciesID() == 0)
+                        {
+                            trainer.boxes[b][s] = std::move(mon);
+                            placed = true;
+                            hasUnsavedChanges = true;
+                            std::string sName = Trainer::getSpeciesName(encounterLookupSpecies);
+                            std::string boxLabel = (b < trainer.boxNames.size()) ? trainer.boxNames[b] : ("Box " + std::to_string(b + 1));
+                            postStatus("Caught " + sName + "! Placed in " + boxLabel + " Slot " + std::to_string(s + 1) + ".", 360);
+                        }
+                    }
+                }
+
+                if (!placed)
+                {
+                    postStatus("All boxes are completely full! Free up a box slot first.", 360);
+                }
             }
         }
     }
@@ -4032,6 +4627,17 @@ namespace UI
                 editTrainerName();
             else if (row == 1)
                 editTrainerMoney();
+            else if (row == 3)
+                editTrainerTID();
+            else if (row == 4)
+                editTrainerSID();
+            return;
+        }
+
+        // Offline Encounter Database & Route Lookup overlay — owns input while open
+        if (encounterLookupActive)
+        {
+            handleEncounterLookupInput(buttonsDown, touch);
             return;
         }
 
@@ -5216,6 +5822,16 @@ namespace UI
                 if (details.hexMode != 0 && details.selectedField > 5)
                     details.selectedField = 0;
                 return;
+            }
+
+            // ZR or tapping Met/Origin row (id 93): open Encounter & Route Lookup!
+            if ((buttonsDown & HidNpadButton_ZR) || touchedButton == 93)
+            {
+                if (pokemon && pokemon->speciesID() > 0)
+                {
+                    openEncounterLookup(pokemon->speciesID(), pokemon->form());
+                    return;
+                }
             }
 
             // Touch: close button (99), or a stat row (0-5) / shiny (6) -> select + act (like A).
@@ -7096,26 +7712,9 @@ namespace UI
                 }
             }
 
-            // Trainer info view: Name (0) / Money (1). Gender is read-only and lives with the
-            // identity rows below, so it is not in this list at all. Both rows defer one frame so
-            // the row highlight draws before the blocking swkbd opens.
             if (selectedMode == ViewMode::Trainer)
             {
-                constexpr int editRowCount = 2;
-                int touchedButton = touchedButtonId(touch);
-                if (touchedButton >= 0 && touchedButton < editRowCount)
-                {
-                    trainerSelectedRow = touchedButton;
-                    buttonsDown |= HidNpadButton_A;
-                }
-                if (buttonsDown & HidNpadButton_Up)
-                    trainerSelectedRow = (trainerSelectedRow - 1 + editRowCount) % editRowCount;
-                if (buttonsDown & HidNpadButton_Down)
-                    trainerSelectedRow = (trainerSelectedRow + 1) % editRowCount;
-                if (buttonsDown & HidNpadButton_A)
-                {
-                    pendingTrainerEdit = trainerSelectedRow; // Name (0) / Money (1): open swkbd next frame
-                }
+                handleTrainerCardInput(buttonsDown, touch);
             }
 
             if (selectedMode == ViewMode::MysteryGift)
@@ -7126,6 +7725,11 @@ namespace UI
             if (selectedMode == ViewMode::LivingDex)
             {
                 handleLivingDexInput(buttonsDown, touch);
+            }
+
+            if (selectedMode == ViewMode::Pokepark)
+            {
+                handlePokeparkInput(buttonsDown, touch);
             }
 
             // Settings view: Up/Down select a row, A toggles it. The row numbers are the shared
@@ -7150,7 +7754,7 @@ namespace UI
                         g_autoBackupEnabled = !g_autoBackupEnabled;
                     else if (settingsSelectedRow == SETTINGS_ROW_THEME)
                     {
-                        applyTheme(g_themeMode == ThemeMode::Dark ? ThemeMode::Light : (g_themeMode == ThemeMode::Light ? ThemeMode::RetroDS : ThemeMode::Dark));
+                        applyTheme(g_themeMode == ThemeMode::RetroDS ? ThemeMode::Dark : (g_themeMode == ThemeMode::Dark ? ThemeMode::Light : ThemeMode::RetroDS));
                         if (g_spriteStyle == SpriteStyle::Auto)
                             SpriteManager::clearCache();
                     }
@@ -7280,11 +7884,11 @@ namespace UI
             else if (homeMenuIndex == 2) homeMenuIndex = 5; // lands in the center on Pokédex
         }
         if (homeMenuIndex >= 3)
-        { // horizontal icon row (3 Items, 4 Events, 5 Pokédex, 6 Trainer, 7 Settings)
+        { // horizontal icon row (3 Items, 4 Events, 5 Pokédex, 6 Poképark, 7 Trainer, 8 Settings)
             if (buttonsDown & HidNpadButton_Left)
-                homeMenuIndex = (homeMenuIndex == 3) ? 7 : homeMenuIndex - 1;
+                homeMenuIndex = (homeMenuIndex == 3) ? 8 : homeMenuIndex - 1;
             if (buttonsDown & HidNpadButton_Right)
-                homeMenuIndex = (homeMenuIndex == 7) ? 3 : homeMenuIndex + 1;
+                homeMenuIndex = (homeMenuIndex == 8) ? 3 : homeMenuIndex + 1;
             buttonsDown &=
                 ~(HidNpadButton_Left | HidNpadButton_Right); // consume L/R (don't also scroll the box preview)
         }
@@ -7310,16 +7914,19 @@ namespace UI
             selectedMode = ViewMode::LivingDex;
             break;
         case 6:
-            selectedMode = ViewMode::Trainer;
+            selectedMode = ViewMode::Pokepark;
             break;
         case 7:
+            selectedMode = ViewMode::Trainer;
+            break;
+        case 8:
             selectedMode = ViewMode::Settings;
             break;
         }
 
-        // Touch: tapping a menu pill/icon (ids 100-107) focuses it and acts like A.
+        // Touch: tapping a menu pill/icon (ids 100-108) focuses it and acts like A.
         int homeTap = touchedButtonId(touch);
-        if (homeTap >= 100 && homeTap <= 107)
+        if (homeTap >= 100 && homeTap <= 108)
         {
             homeMenuIndex = homeTap - 100;
             switch (homeMenuIndex)
@@ -7344,9 +7951,12 @@ namespace UI
                 selectedMode = ViewMode::LivingDex;
                 break;
             case 6:
-                selectedMode = ViewMode::Trainer;
+                selectedMode = ViewMode::Pokepark;
                 break;
             case 7:
+                selectedMode = ViewMode::Trainer;
+                break;
+            case 8:
                 selectedMode = ViewMode::Settings;
                 break;
             }
@@ -7392,10 +8002,18 @@ namespace UI
                 detailViewActive = true;
                 refreshLivingDex();
                 break;
-            case 6: // Trainer info
+            case 6: // Poképark Living Habitat
+                detailViewActive = true;
+                pokeparkSelectedResident = 0;
+                pokeparkCardActive = false;
+                pokeparkJournalActive = false;
+                pokeparkDialogueText.clear();
+                pokeparkDialogueTimer = 0.0f;
+                break;
+            case 7: // Trainer info
                 detailViewActive = true;
                 break;
-            case 7: // Settings screen (auto-backup + theme)
+            case 8: // Settings screen (auto-backup + theme)
                 detailViewActive = true;
                 settingsSelectedRow = 0;
                 break;
@@ -7553,7 +8171,7 @@ namespace UI
         {
             subtitle += "  (" + trainer.saveRevisionString + ")";
         }
-        drawTitleBar(framebuffer, subtitle);
+        drawTitleBar(framebuffer, subtitle, hasUnsavedChanges ? "Unsaved changes" : "Open");
 
         // Not entered -> the HOME main menu. Entered -> the selected mode's content spans the full width.
         const bool entered = detailViewActive;
@@ -7595,8 +8213,11 @@ namespace UI
             case ViewMode::LivingDex:
                 Panels::drawLivingDexView(*this, framebuffer);
                 break;
+            case ViewMode::Pokepark:
+                Panels::drawPokepark(*this, framebuffer);
+                break;
             case ViewMode::Trainer:
-                drawTrainerView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth, CONTENT_PANEL_HEIGHT);
+                Panels::drawTrainerCardView(*this, framebuffer);
                 break;
             case ViewMode::Settings:
                 drawSettingsView(*this, framebuffer, contentX, CONTENT_PANEL_Y, contentPanelWidth,
@@ -7763,8 +8384,7 @@ namespace UI
             }
             else if (selectedMode == ViewMode::Trainer)
             {
-                // X saves only from the HOME menu (see the X handler), so the flow is edit -> B -> X.
-                instructions = "Up/Down: Select  |  A: Edit  |  B: Back  |  +: Exit App";
+                instructions = "D-Pad: Select  |  A: Edit/Toggle  |  Y: Max Money  |  X: Toggle Badges  |  B: Back";
             }
         }
         else
@@ -7777,7 +8397,7 @@ namespace UI
         // overlay owns input). Drawing one here as well put two bars in the frame -- invisible,
         // because the second covered the first exactly, but wasted work and indistinguishable from
         // a real double-bar bug -- one nav bar per frame, always.
-        if (!details.active && !(detailViewActive && (selectedMode == ViewMode::MysteryGift || selectedMode == ViewMode::LivingDex)))
+        if (!details.active && !(detailViewActive && (selectedMode == ViewMode::MysteryGift || selectedMode == ViewMode::LivingDex || selectedMode == ViewMode::Pokepark)))
             drawNavBar(framebuffer, instructions);
         const int footerY = framebuffer.getHeight() - NAV_BAR_HEIGHT;
 
@@ -7878,6 +8498,10 @@ namespace UI
         if (pksmImport.resultActive)
         {
             Dialogs::drawPKSMImportResult(*this, framebuffer);
+        }
+        if (encounterLookupActive)
+        {
+            Panels::drawEncounterLookup(*this, framebuffer);
         }
 
         // Transient status line (a refused cross-game drop, a rejected name), centered above the footer.

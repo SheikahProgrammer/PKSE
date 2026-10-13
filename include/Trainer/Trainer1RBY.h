@@ -147,6 +147,9 @@ namespace Trainer
 
         /// The full save, checksum refreshed. This is what gets written back to the SD card.
         const std::vector<uint8_t> &serialize();
+        const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
+        const RBYOffsets &getOffsets() const noexcept { return offsets; }
 
         void updatePartyBlock() override;
         void updateBoxBlock() override;

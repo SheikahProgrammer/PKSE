@@ -60,6 +60,7 @@ namespace UI
     std::map<uint8_t, Sprite *> SpriteManager::typeSpriteCache;
     std::map<uint8_t, Sprite *> SpriteManager::ballSpriteCache;
     std::map<uint16_t, Sprite *> SpriteManager::itemSpriteCache;
+    std::map<std::string, Sprite *> SpriteManager::uiIconCache;
 std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
     bool SpriteManager::initialized = false;
 
@@ -142,6 +143,10 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         for (auto &pair : itemSpriteCache)
             delete pair.second;
         itemSpriteCache.clear();
+
+        for (auto &pair : uiIconCache)
+            delete pair.second;
+        uiIconCache.clear();
 
         initialized = false;
         logInfoToFile("SpriteManager cleanup complete");
@@ -480,6 +485,18 @@ std::map<uint32_t, Sprite *> SpriteManager::originMarkCache;
         std::string path = "sprites/balls/" + std::to_string(ballId) + ".png";
         Sprite *sprite = loadSprite(path);
         ballSpriteCache[ballId] = sprite;
+        return sprite;
+    }
+
+    Sprite *SpriteManager::getUiIcon(const std::string &name)
+    {
+        if (!initialized)
+            init();
+        auto iterator = uiIconCache.find(name);
+        if (iterator != uiIconCache.end())
+            return iterator->second;
+        Sprite *sprite = loadSprite("ui/pksm/" + name + ".png");
+        uiIconCache[name] = sprite;
         return sprite;
     }
 

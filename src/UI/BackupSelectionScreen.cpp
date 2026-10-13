@@ -219,7 +219,7 @@ namespace UI
     void BackupSelectionScreen::draw(PKSEFramebuffer &framebuffer)
     {
         framebuffer.clear(Colors::Background);
-        drawTitleBar(framebuffer, titleName);
+        drawTitleBar(framebuffer, titleName, "Backups");
 
         // Leave a real gap under the card so the nav bar's shadow falls on the background, not on
         // the card edge. (Was a bare "- 46", which sat flush against the taller bar.)

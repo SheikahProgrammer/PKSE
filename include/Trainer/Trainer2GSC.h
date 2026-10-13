@@ -101,6 +101,8 @@ namespace Trainer
 
         const std::vector<uint8_t> &serialize();
         const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
+        const Gen2Offsets *getOffsets() const noexcept { return offsets; }
         const std::string &fileName() const noexcept { return savePath; }
         bool isValid() const noexcept { return valid; }
         Gen2Layout layout() const noexcept { return saveLayout; }

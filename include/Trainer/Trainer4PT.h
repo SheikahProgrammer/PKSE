@@ -69,6 +69,9 @@ namespace Trainer
         /// Applies every edit, refreshes the CRCs, and returns the whole 0x80000 image.
         const std::vector<uint8_t> &serialize();
         const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
+        uint8_t *getGeneralBlock() noexcept { return generalBlock(); }
+        const uint8_t *getGeneralBlock() const noexcept { return generalBlock(); }
         const std::string &fileName() const noexcept { return savePath; }
         bool isValid() const noexcept { return valid; }
 

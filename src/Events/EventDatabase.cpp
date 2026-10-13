@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "Events/EventDatabase.h"
+#include "Enums/Ball.h"
 #include "Utils/Logger.h"
 #include "Utils/StringHelpers.h"
 #include "Pokemon/Pokemon3FRLG.h"
@@ -321,7 +322,14 @@ static void applyEventData(Pokemon::Pokemon* pk, const EventRecord& rec, const T
         }
     }
     pk->setHeldItem(item);
-    pk->setBall(rec.ball ? rec.ball : 16); // Cherish Ball default
+
+    // Sanitize ball: clamp out-of-range IDs and handle pre-Gen 4 formats where Cherish (16) does not exist
+    uint8_t ball = (rec.ball > 0 && rec.ball <= 37) ? rec.ball : 16;
+    if (destGroup == Enums::GameVersion::FRLG || destGroup == Enums::GameVersion::RSE) {
+        if (ball > Enums::MAX_BALL_GEN3)
+            ball = 4; // Default to standard Poké Ball for Gen 3
+    }
+    pk->setBall(ball);
 
     // 10. Moves, Relearn Moves & Base PP (base PP guaranteed non-zero for valid moves)
     for (int i = 0; i < 4; ++i) {

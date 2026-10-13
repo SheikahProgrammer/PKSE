@@ -49,6 +49,9 @@ int main()
         return -1;
     }
 
+    // Battery level for the status strip. Optional: without it the strip shows a full battery.
+    const bool psmInitialized = R_SUCCEEDED(psmInitialize());
+
     Utils::logInfoToFile("Initializing ROMFS...");
     Result romfsInitResult = romfsInit();
     bool romfsInitialized = false;
@@ -138,6 +141,8 @@ int main()
     if (sharedFontsInitialized)
         plExit();
 
+    if (psmInitialized)
+        psmExit();
     accountExit();
     nsExit();
 

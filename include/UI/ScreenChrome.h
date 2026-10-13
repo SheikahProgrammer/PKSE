@@ -26,8 +26,9 @@ namespace UI
     {
         // Mid-grey badge with the bar colour as ink. Both are theme colours, so the pair inverts
         // itself: dark letter on light grey in the dark theme, white letter on grey in the light one.
-        const Color fillColor = Colors::TextDim;
-        const Color inkColor = Colors::Panel;
+        // PKForge (PksmPaint.HintBar): LogoCyan key discs with LogoVoid ink.
+        const Color fillColor = isPkForgeTheme() ? Pksm::LogoCyan : Colors::TextDim;
+        const Color inkColor = isPkForgeTheme() ? Pksm::LogoVoid : Colors::Panel;
         constexpr int faceButtonRadius = 12; // face-button radius
 
         auto centred = [&](const std::string &s, int boxX, int boxWidth)
@@ -157,17 +158,24 @@ namespace UI
                                 Color fillColor = Colors::PanelAlt, Color textColor = Colors::Text,
                                 bool pressed = false)
     {
-        if (g_themeMode == ThemeMode::RetroDS)
+        if (isPkForgeTheme())
         {
-            Color btnAccent = (fillColor.red > 150 && fillColor.green < 100) ? Color(0xE8, 0x38, 0x48) : Colors::Accent;
-            framebuffer.drawRetroDSButton(boxX, boxY, boxWidth, boxHeight, nullptr, pressed, btnAccent, 8);
+            // A destructive action keeps its red as the selected-button accent (UiTokens.AccentDanger).
+            const bool danger = fillColor.red > 150 && fillColor.green < 110;
+            if (pressed)
+                framebuffer.pkSelectedButton(boxX, boxY, boxWidth, boxHeight, 4,
+                                             danger ? Color(0xA6, 0x52, 0x63) : Pksm::HeaderBlue);
+            else
+                framebuffer.pkBlackButton(boxX, boxY, boxWidth, boxHeight, 4);
+            if (danger && !pressed)
+                framebuffer.drawRoundedRect(boxX + 1, boxY + 1, boxWidth - 2, boxHeight - 2, 4, Pksm::Illegal, 2);
             const int glyphWidth = buttonGlyphWidth(framebuffer, glyph);
             int labelWidth, lh;
             framebuffer.measureText(label, labelWidth, lh);
             const int glyphX = boxX + (boxWidth - (glyphWidth + 10 + labelWidth)) / 2;
             buttonGlyph(framebuffer, glyphX, boxY + boxHeight / 2, glyph, false);
-            framebuffer.drawText(glyphX + glyphWidth + 10, boxY + (boxHeight - lh) / 2, label,
-                                 pressed ? Color(0xF4, 0xF8, 0xFF) : (fillColor.red > 150 ? Color(0xFF, 0x90, 0x90) : Color(0xF4, 0xF8, 0xFF)));
+            framebuffer.drawText(glyphX + glyphWidth + 10, framebuffer.textYCenteredOn(boxY + boxHeight / 2), label,
+                                 Pksm::Ink);
             return;
         }
         framebuffer.drawFilledRoundedRect(boxX, boxY, boxWidth, boxHeight, 8, fillColor);
@@ -409,7 +417,8 @@ namespace UI
             int textWidth, textHeight;
             framebuffer.measureText(segment.label, textWidth, textHeight, TextStyle::Caption);
             framebuffer.drawText(centerX, centerY - textHeight / 2, segment.label,
-                                 segment.glyphWidth ? Colors::Text : Colors::Accent, TextStyle::Caption);
+                                 segment.glyphWidth ? (isPkForgeTheme() ? Pksm::Ink : Colors::Text) : Colors::Accent,
+                                 TextStyle::Caption);
             centerX += segment.labelWidth;
             // The badge AND its label are one tap target -- aiming at a 24px circle is unreasonable,
             // and the label is the part that says what will happen. Height is TouchTargetMin rather
@@ -422,22 +431,50 @@ namespace UI
         }
     }
 
-    // Top title bar: "PKSE" + a subtitle on a sheet that curves along its bottom edge.
-    inline void drawTitleBar(PKSEFramebuffer &framebuffer, const std::string &subtitle)
+    // PKForge DsChrome: the dark title rail carrying the centred wordmark over a cyan rule.
+    constexpr int PK_TITLE_RAIL_HEIGHT = 30;
+
+    // Battery level for the status strip, refreshed every few seconds (-1 = unknown, drawn full).
+    int statusBatteryPercent();
+
+    // Top chrome. PKForge theme: DsChrome.TitleBar ("PKSE" centred on the void rail, cyan rule)
+    // over DsChrome.StatusStrip (the save on the left, status words after a dot, battery right).
+    // Other themes: the "PKSE" + subtitle sheet that curves along its bottom edge.
+    inline void drawTitleBar(PKSEFramebuffer &framebuffer, const std::string &subtitle,
+                             const std::string &status = "")
     {
-        if (g_themeMode == ThemeMode::RetroDS)
+        const int screenWidth = framebuffer.getWidth();
+        if (isPkForgeTheme())
         {
-            framebuffer.drawRetroDSHeaderStrip(0, 0, framebuffer.getWidth(), HEADER_HEIGHT, nullptr, Color(0x2B, 0x4E, 0x95), TextStyle::Title);
-            framebuffer.drawText(20, 10, "PKSE", Color(0x42, 0xBF, 0xE8), TextStyle::Title);
-            int boxWidth, bh;
-            framebuffer.measureText("PKSE", boxWidth, bh, TextStyle::Title);
-            framebuffer.drawFilledRoundedRect(20, 52, boxWidth, 3, 2, Color(0x42, 0xBF, 0xE8));
+            framebuffer.drawFilledRect(0, 0, screenWidth, PK_TITLE_RAIL_HEIGHT, Pksm::LogoVoid);
+            framebuffer.drawFilledRect(20, PK_TITLE_RAIL_HEIGHT - 3, screenWidth - 40, 2, Pksm::LogoCyan);
+            int tw, th;
+            framebuffer.measureText("PKSE", tw, th, TextStyle::Body);
+            framebuffer.drawText((screenWidth - tw) / 2, framebuffer.textYCenteredOn(PK_TITLE_RAIL_HEIGHT / 2 - 2),
+                                 "PKSE", Color(255, 255, 255));
+
+            const int stripY = PK_TITLE_RAIL_HEIGHT, stripH = HEADER_HEIGHT - PK_TITLE_RAIL_HEIGHT;
+            framebuffer.drawFilledRect(0, stripY, screenWidth, stripH, Pksm::Paper);
+            const int midY = stripY + stripH / 2;
+            int x = 16;
             if (!subtitle.empty())
-                framebuffer.drawText(20 + boxWidth + 16, 24, subtitle, Color(0xA8, 0xBA, 0xDC), TextStyle::Body);
+            {
+                framebuffer.drawText(x, framebuffer.textYCenteredOn(midY), subtitle, Pksm::Ink);
+                int sw, sh;
+                framebuffer.measureText(subtitle, sw, sh);
+                x += sw + 15;
+            }
+            if (!status.empty())
+            {
+                framebuffer.drawFilledRoundedRect(x, midY - 3, 6, 6, 1, Pksm::InkSoft);
+                x += 6 + 15;
+                framebuffer.drawText(x, framebuffer.textYCenteredOn(midY), status, Pksm::InkSoft);
+            }
+            framebuffer.pkBattery(screenWidth - 16 - 24, midY - 6, statusBatteryPercent());
             return;
         }
-        framebuffer.drawSoftShadow(0, -40, framebuffer.getWidth(), HEADER_HEIGHT + 40, CHROME_CORNER_RADIUS);
-        framebuffer.drawFilledRoundedRect(0, -CHROME_CORNER_RADIUS, framebuffer.getWidth(),
+        framebuffer.drawSoftShadow(0, -40, screenWidth, HEADER_HEIGHT + 40, CHROME_CORNER_RADIUS);
+        framebuffer.drawFilledRoundedRect(0, -CHROME_CORNER_RADIUS, screenWidth,
                                           HEADER_HEIGHT + CHROME_CORNER_RADIUS, CHROME_CORNER_RADIUS, Colors::Panel);
         framebuffer.drawText(20, 8, "PKSE", Colors::Accent, TextStyle::Title);
         int boxWidth, bh;
@@ -445,24 +482,57 @@ namespace UI
         // Short accent underline beneath the wordmark. A full-width rule cannot work against a curved
         // sheet: a straight line would cut across the corners.
         framebuffer.drawFilledRoundedRect(20, 52, boxWidth, 3, 2, Colors::Accent);
-        if (!subtitle.empty())
-            framebuffer.drawText(20 + boxWidth + 16, 24, subtitle, Colors::TextDim, TextStyle::Body);
+        std::string line = subtitle;
+        if (!status.empty())
+            line += (line.empty() ? "" : "   ") + status;
+        if (!line.empty())
+            framebuffer.drawText(20 + boxWidth + 16, 24, line, Colors::TextDim, TextStyle::Body);
     }
 
     // Bottom nav bar: a sheet that curves along its top edge, carrying the controller badges.
     inline void drawNavBar(PKSEFramebuffer &framebuffer, const std::string &hint)
     {
         const int screenWidth = framebuffer.getWidth(), barY = framebuffer.getHeight() - NAV_BAR_HEIGHT;
-        if (g_themeMode == ThemeMode::RetroDS)
+        if (isPkForgeTheme())
         {
-            framebuffer.drawRetroDSHeaderStrip(0, barY, screenWidth, NAV_BAR_HEIGHT, nullptr, Color(0x1B, 0x24, 0x47), TextStyle::Heading);
-            drawNavHints(framebuffer, 0, screenWidth, barY + NAV_BAR_HEIGHT / 2, hint);
+            // PksmPaint.HintBar: a device panel (inset 3) carrying the cyan key discs and pale labels.
+            framebuffer.pkPanel(3, barY + 1, screenWidth - 9, NAV_BAR_HEIGHT - 6);
+            drawNavHints(framebuffer, 0, screenWidth, barY + NAV_BAR_HEIGHT / 2 - 1, hint);
             return;
         }
         framebuffer.drawSoftShadow(0, barY, screenWidth, NAV_BAR_HEIGHT + 40, CHROME_CORNER_RADIUS);
         framebuffer.drawFilledRoundedRect(0, barY, screenWidth, NAV_BAR_HEIGHT + CHROME_CORNER_RADIUS,
                                           CHROME_CORNER_RADIUS, Colors::Panel);
         drawNavHints(framebuffer, 0, screenWidth, barY + NAV_BAR_HEIGHT / 2, hint);
+    }
+
+    // PKForge popups (Living Dex, Mystery Gift, editors) sit over the dimmed screen as one device
+    // panel. Draws the scrim + panel in the PKForge theme; other themes keep their full-screen look.
+    inline void drawPopupFrame(PKSEFramebuffer &framebuffer, Color body = Pksm::Paper)
+    {
+        if (!isPkForgeTheme())
+            return;
+        framebuffer.drawFilledRect(0, 0, framebuffer.getWidth(), framebuffer.getHeight(), Color(0x14, 0x12, 0x1D, 0xCC));
+        framebuffer.pkPanel(12, 6, framebuffer.getWidth() - 24, framebuffer.getHeight() - 14, body);
+    }
+
+    // A popup's own hint bar: PKForge's HintBar panel with cyan key discs; elsewhere the plain
+    // caption line these popups always had. `hint` uses the nav bar's "Btn: Label | ..." format.
+    inline void drawPopupHints(PKSEFramebuffer &framebuffer, int barX, int barY, int barWidth, int barHeight,
+                               const std::string &hint)
+    {
+        if (isPkForgeTheme())
+        {
+            framebuffer.pkPanel(barX, barY, barWidth, barHeight);
+            drawNavHints(framebuffer, barX, barWidth, barY + barHeight / 2, hint);
+            return;
+        }
+        framebuffer.drawFilledRoundedRect(barX, barY, barWidth, barHeight, 12, Colors::Panel);
+        framebuffer.drawRoundedRect(barX, barY, barWidth, barHeight, 12, Colors::Border, 1);
+        int iw, ih;
+        framebuffer.measureText(hint, iw, ih, TextStyle::Caption);
+        framebuffer.drawText(barX + (barWidth - iw) / 2, barY + (barHeight - ih) / 2, hint, Colors::TextDim,
+                             TextStyle::Caption);
     }
 
     // A HOME-style selectable list tile: rounded (stadium), soft shadow, amber when
@@ -472,6 +542,17 @@ namespace UI
                              int homeTileHeight, const std::string &label, bool selected, bool accent = false,
                              bool enabled = true)
     {
+        if (isPkForgeTheme())
+        {
+            // DsFolderButton: the resting menu button, or the cobalt selected look.
+            if (selected)
+                framebuffer.pkSelectedButton(homeTileX, homeTileY, homeTileWidth, homeTileHeight, 4);
+            else
+                framebuffer.pkBlackButton(homeTileX, homeTileY, homeTileWidth, homeTileHeight, 4);
+            const Color ink = !enabled ? Pksm::InkSoft : (accent && !selected) ? Pksm::LogoCyan : Pksm::Ink;
+            framebuffer.drawText(homeTileX + 30, framebuffer.textYCenteredOn(homeTileY + homeTileHeight / 2), label, ink);
+            return;
+        }
         framebuffer.drawSoftShadow(homeTileX, homeTileY, homeTileWidth, homeTileHeight, homeTileHeight / 2);
         const Color fillColor = selected ? Colors::Primary : Colors::PanelAlt;
         framebuffer.drawPill(homeTileX, homeTileY, homeTileWidth, homeTileHeight, fillColor);

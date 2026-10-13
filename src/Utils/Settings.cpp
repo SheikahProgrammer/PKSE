@@ -30,6 +30,11 @@ namespace Utils
         // No config yet -> keep the compiled-in defaults, but still fall through to the language
         // pin below. Returning early here skipped it, which is the FIRST run on every console --
         // exactly the case the pin exists for.
+        // The PKForge look is the default. A config written before it existed (no `uiStyle=` line)
+        // is moved onto it once; after that, whatever theme the player picks is kept.
+        UI::applyTheme(UI::ThemeMode::RetroDS);
+        bool sawUiStyle = false;
+
         FILE *f = fopen(settingsPath().c_str(), "r");
         char line[128];
         while (f && fgets(line, sizeof(line), f))
@@ -48,12 +53,16 @@ namespace Utils
 
             if (strcmp(key, "theme") == 0)
             {
-                if (strcmp(value, "retrods") == 0)
+                if (strcmp(value, "pkforge") == 0 || strcmp(value, "retrods") == 0)
                     UI::applyTheme(UI::ThemeMode::RetroDS);
                 else if (strcmp(value, "light") == 0)
                     UI::applyTheme(UI::ThemeMode::Light);
                 else
                     UI::applyTheme(UI::ThemeMode::Dark);
+            }
+            else if (strcmp(key, "uiStyle") == 0)
+            {
+                sawUiStyle = true;
             }
             else if (strcmp(key, "autoBackup") == 0)
             {
@@ -114,6 +123,8 @@ namespace Utils
         }
         if (f)
             fclose(f);
+        if (!sawUiStyle)
+            UI::applyTheme(UI::ThemeMode::RetroDS);
 
         // Pin English while the language is not user-selectable. Everything above still runs --
         // the console is still asked, an existing `language=` line is still honoured -- so
@@ -136,10 +147,11 @@ namespace Utils
         }
         const char *themeStr = "dark";
         if (UI::g_themeMode == UI::ThemeMode::RetroDS)
-            themeStr = "retrods";
+            themeStr = "pkforge";
         else if (UI::g_themeMode == UI::ThemeMode::Light)
             themeStr = "light";
         fprintf(f, "theme=%s\n", themeStr);
+        fprintf(f, "uiStyle=pkforge\n");
 
         const char *styleStr = "auto";
         if (UI::g_spriteStyle == UI::SpriteStyle::PixelArt)

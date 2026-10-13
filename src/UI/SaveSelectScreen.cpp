@@ -468,7 +468,7 @@ namespace UI
         userRects.clear();
 
         framebuffer.clear(Colors::Background);
-        drawTitleBar(framebuffer, "Pokémon Save Editor   v" + VERSION_STRING);
+        drawTitleBar(framebuffer, "Pokémon Save Editor", "v" + VERSION_STRING);
 
         const UserEntry *u = currentUser();
 
@@ -810,74 +810,48 @@ namespace UI
 
         struct stat st;
 
-        // 1. Direct match in sdmc:/tico/assets/icons/<plat>/<label>.png
-        std::string p1 = "sdmc:/tico/assets/icons/" + platLower + "/" + label + ".png";
-        if (stat(p1.c_str(), &st) == 0)
-            return p1;
-
-        // 2. Direct match in sdmc:/tico/assets/covers/<plat>/<label>.jpg
-        std::string p2 = "sdmc:/tico/assets/covers/" + platLower + "/" + label + ".jpg";
-        if (stat(p2.c_str(), &st) == 0)
-            return p2;
-
-        // 2b. Match with "Pokemon " prefix in icons/covers
-        std::string p1b = "sdmc:/tico/assets/icons/" + platLower + "/Pokemon " + label + ".png";
-        if (stat(p1b.c_str(), &st) == 0)
-            return p1b;
-        std::string p2b = "sdmc:/tico/assets/covers/" + platLower + "/Pokemon " + label + ".jpg";
-        if (stat(p2b.c_str(), &st) == 0)
-            return p2b;
-
-        // 3. Extract stem from savePath filename
+        // Extract stem from savePath filename
         size_t lastSlash = savePath.find_last_of('/');
         std::string saveStem = (lastSlash != std::string::npos) ? savePath.substr(lastSlash + 1) : savePath;
         size_t lastDot = saveStem.find_last_of('.');
         if (lastDot != std::string::npos)
             saveStem = saveStem.substr(0, lastDot);
 
-        std::string p3 = "sdmc:/tico/assets/icons/" + platLower + "/" + saveStem + ".png";
-        if (stat(p3.c_str(), &st) == 0)
-            return p3;
+        std::string lblLower = label;
+        for (char &c : lblLower)
+            c = std::tolower(static_cast<unsigned char>(c));
 
-        std::string p4 = "sdmc:/tico/assets/covers/" + platLower + "/" + saveStem + ".jpg";
-        if (stat(p4.c_str(), &st) == 0)
-            return p4;
+        std::string stemLower = saveStem;
+        for (char &c : stemLower)
+            c = std::tolower(static_cast<unsigned char>(c));
 
-        // 3b. Search tico assets directories for matching ROM names (e.g. "Pokemon Alpha Sapphire (USA)...")
-        std::string iconDir = "sdmc:/tico/assets/icons/" + platLower;
-        DIR *dI = opendir(iconDir.c_str());
-        if (dI)
+        // 1. PRIORITIZE COVERS (Authentic legendary box art)
+        // 1a. Direct match in sdmc:/tico/assets/covers/<plat>/<label>.{jpg,png}
+        std::string c1j = "sdmc:/tico/assets/covers/" + platLower + "/" + label + ".jpg";
+        if (stat(c1j.c_str(), &st) == 0) return c1j;
+        std::string c1p = "sdmc:/tico/assets/covers/" + platLower + "/" + label + ".png";
+        if (stat(c1p.c_str(), &st) == 0) return c1p;
+
+        // 1b. Match with "Pokemon " prefix in covers
+        std::string c2j = "sdmc:/tico/assets/covers/" + platLower + "/Pokemon " + label + ".jpg";
+        if (stat(c2j.c_str(), &st) == 0) return c2j;
+        std::string c2p = "sdmc:/tico/assets/covers/" + platLower + "/Pokemon " + label + ".png";
+        if (stat(c2p.c_str(), &st) == 0) return c2p;
+
+        // 1c. Match by save filename stem in covers
+        if (!saveStem.empty() && saveStem != "main" && saveStem != "save00")
         {
-            std::string lblLower = label;
-            for (char &c : lblLower)
-                c = std::tolower(static_cast<unsigned char>(c));
-            struct dirent *ent;
-            while ((ent = readdir(dI)) != nullptr)
-            {
-                if (ent->d_name[0] == '.')
-                    continue;
-                std::string fn = ent->d_name;
-                std::string fnLower = fn;
-                for (char &c : fnLower)
-                    c = std::tolower(static_cast<unsigned char>(c));
-                if (fnLower.find(lblLower) != std::string::npos && fn.size() > 4 &&
-                    fn.compare(fn.size() - 4, 4, ".png") == 0)
-                {
-                    std::string match = iconDir + "/" + fn;
-                    closedir(dI);
-                    return match;
-                }
-            }
-            closedir(dI);
+            std::string c3j = "sdmc:/tico/assets/covers/" + platLower + "/" + saveStem + ".jpg";
+            if (stat(c3j.c_str(), &st) == 0) return c3j;
+            std::string c3p = "sdmc:/tico/assets/covers/" + platLower + "/" + saveStem + ".png";
+            if (stat(c3p.c_str(), &st) == 0) return c3p;
         }
 
+        // 1d. Directory search in covers/<plat>/ for matching title substring
         std::string coverDir = "sdmc:/tico/assets/covers/" + platLower;
         DIR *dC = opendir(coverDir.c_str());
         if (dC)
         {
-            std::string lblLower = label;
-            for (char &c : lblLower)
-                c = std::tolower(static_cast<unsigned char>(c));
             struct dirent *ent;
             while ((ent = readdir(dC)) != nullptr)
             {
@@ -887,15 +861,78 @@ namespace UI
                 std::string fnLower = fn;
                 for (char &c : fnLower)
                     c = std::tolower(static_cast<unsigned char>(c));
-                if (fnLower.find(lblLower) != std::string::npos &&
-                    (fn.find(".jpg") != std::string::npos || fn.find(".png") != std::string::npos))
+                bool isImage = (fn.find(".jpg") != std::string::npos || fn.find(".png") != std::string::npos);
+                if (isImage)
                 {
-                    std::string match = coverDir + "/" + fn;
-                    closedir(dC);
-                    return match;
+                    if (!lblLower.empty() && fnLower.find(lblLower) != std::string::npos)
+                    {
+                        std::string match = coverDir + "/" + fn;
+                        closedir(dC);
+                        return match;
+                    }
+                    if (!stemLower.empty() && stemLower != "main" && stemLower != "save00" &&
+                        fnLower.find(stemLower) != std::string::npos)
+                    {
+                        std::string match = coverDir + "/" + fn;
+                        closedir(dC);
+                        return match;
+                    }
                 }
             }
             closedir(dC);
+        }
+
+        // 2. FALLBACK TO ICONS (if no cover found)
+        std::string p1 = "sdmc:/tico/assets/icons/" + platLower + "/" + label + ".png";
+        if (stat(p1.c_str(), &st) == 0) return p1;
+        std::string p1j = "sdmc:/tico/assets/icons/" + platLower + "/" + label + ".jpg";
+        if (stat(p1j.c_str(), &st) == 0) return p1j;
+
+        std::string p1b = "sdmc:/tico/assets/icons/" + platLower + "/Pokemon " + label + ".png";
+        if (stat(p1b.c_str(), &st) == 0) return p1b;
+        std::string p1bj = "sdmc:/tico/assets/icons/" + platLower + "/Pokemon " + label + ".jpg";
+        if (stat(p1bj.c_str(), &st) == 0) return p1bj;
+
+        if (!saveStem.empty() && saveStem != "main" && saveStem != "save00")
+        {
+            std::string p3 = "sdmc:/tico/assets/icons/" + platLower + "/" + saveStem + ".png";
+            if (stat(p3.c_str(), &st) == 0) return p3;
+            std::string p3j = "sdmc:/tico/assets/icons/" + platLower + "/" + saveStem + ".jpg";
+            if (stat(p3j.c_str(), &st) == 0) return p3j;
+        }
+
+        std::string iconDir = "sdmc:/tico/assets/icons/" + platLower;
+        DIR *dI = opendir(iconDir.c_str());
+        if (dI)
+        {
+            struct dirent *ent;
+            while ((ent = readdir(dI)) != nullptr)
+            {
+                if (ent->d_name[0] == '.')
+                    continue;
+                std::string fn = ent->d_name;
+                std::string fnLower = fn;
+                for (char &c : fnLower)
+                    c = std::tolower(static_cast<unsigned char>(c));
+                bool isImage = (fn.find(".png") != std::string::npos || fn.find(".jpg") != std::string::npos);
+                if (isImage)
+                {
+                    if (!lblLower.empty() && fnLower.find(lblLower) != std::string::npos)
+                    {
+                        std::string match = iconDir + "/" + fn;
+                        closedir(dI);
+                        return match;
+                    }
+                    if (!stemLower.empty() && stemLower != "main" && stemLower != "save00" &&
+                        fnLower.find(stemLower) != std::string::npos)
+                    {
+                        std::string match = iconDir + "/" + fn;
+                        closedir(dI);
+                        return match;
+                    }
+                }
+            }
+            closedir(dI);
         }
 
         // 4. Bundled RomFS fallback for vanilla and romhack games

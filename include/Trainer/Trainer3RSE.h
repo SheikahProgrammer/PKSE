@@ -69,11 +69,6 @@ namespace Trainer
         uint8_t languageId = static_cast<uint8_t>(Enums::LanguageID::English);
         bool valid = false;
 
-        // Logical-block base sector ids. Identical to FireRed's -- this part of Gen 3 is shared.
-        static constexpr int SMALL_ID = 0;
-        static constexpr int LARGE_ID = 1;   // ids 1..4
-        static constexpr int STORAGE_ID = 5; // ids 5..13
-
         // Large-block offsets that do NOT vary between Ruby/Sapphire and Emerald.
         static constexpr size_t OFS_PARTY_COUNT = 0x234;
         static constexpr size_t OFS_PARTY = 0x238;
@@ -88,11 +83,17 @@ namespace Trainer
         void parseBoxNames();
         void parseItems();
 
-        void readBlock(int blockBaseId, size_t logical, uint8_t *destination, size_t length) const;
-        void writeBlock(int blockBaseId, size_t logical, const uint8_t *source, size_t length);
         std::unique_ptr<::Pokemon::Pokemon> readMon(int blockBaseId, size_t logical, size_t size) const;
 
     public:
+        // Logical-block base sector ids.
+        static constexpr int SMALL_ID = 0;
+        static constexpr int LARGE_ID = 1;   // ids 1..4
+        static constexpr int STORAGE_ID = 5; // ids 5..13
+
+        void readBlock(int blockBaseId, size_t logical, uint8_t *destination, size_t length) const;
+        void writeBlock(int blockBaseId, size_t logical, const uint8_t *source, size_t length);
+
         explicit Trainer3RSE(std::vector<uint8_t> data, std::string fileName);
 
         /// True when `bytes` is a Ruby, Sapphire or Emerald save.
@@ -142,6 +143,7 @@ namespace Trainer
         bool isValid() const noexcept { return valid; }
         const std::string &fileName() const noexcept { return saveFileName; }
         const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
         uint32_t securityKey() const noexcept { return saveSecurityKey; }
 
         void finalizeChecksums();

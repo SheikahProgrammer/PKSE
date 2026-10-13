@@ -780,7 +780,8 @@ def pack_records(records, out_path):
             isShiny = max(0, min(255, int(r['isShiny'])))
             level = max(0, min(255, int(r['level'])))
             gender = max(0, min(255, int(r['gender'])))
-            ball = max(0, min(255, int(r['ball'])))
+            ball_val = int(r['ball'])
+            ball = ball_val if 0 < ball_val <= 37 else 16
             nature = max(0, min(255, int(r['nature'])))
             abilityNum = max(0, min(255, int(r['abilityNum'])))
             metLevel = max(0, min(255, int(r['metLevel'])))

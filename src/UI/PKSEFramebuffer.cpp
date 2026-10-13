@@ -242,6 +242,9 @@ namespace UI
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         nvgBeginFrame(vg, static_cast<float>(width), static_cast<float>(height), 1.0f);
         frameActive = true;
+        // PKForge draws its logo grid behind every global menu body (DsChrome.GridBackground).
+        if (isPkForgeTheme() && color == Colors::Background)
+            pkLogoGrid(0, 0, width, height);
     }
 
     void PKSEFramebuffer::flush()
@@ -312,20 +315,39 @@ namespace UI
         nvgStroke(vg);
     }
 
+    // PKForge shapes: panels are UiTokens.PanelRadius (6), never the HOME 14-16 px curves. Discs and
+    // pills (radius at half the short side) are left alone -- drawPill handles the latter.
+    static int pkRadius(int radius, int w, int h)
+    {
+        if (!isPkForgeTheme())
+            return radius;
+        const int half = std::min(w, h) / 2;
+        return (radius > 6 && radius < half) ? 6 : radius;
+    }
+
     void PKSEFramebuffer::drawFilledRoundedRect(int rectX, int rectY, int rectWidth, int rectHeight, int cornerRadius,
                                                 Color color)
     {
         if (rectWidth <= 0 || rectHeight <= 0 || !ensureFrame())
             return;
+        if (isPkForgeFocusFill(color))
+        {
+            pkSelectedButton(rectX, rectY, rectWidth, rectHeight, std::min(cornerRadius, 6));
+            return;
+        }
+        // A large Panel-coloured card is PKForge's device panel (top light, bezel, hard drop shadow).
+        if (isPkForgeTheme() && color == Colors::Panel && rectWidth >= 180 && rectHeight >= 120)
+        {
+            pkPanel(rectX, rectY, rectWidth, rectHeight);
+            return;
+        }
+        cornerRadius = pkRadius(cornerRadius, rectWidth, rectHeight);
         int rmax = std::min(rectWidth, rectHeight) / 2;
         if (cornerRadius > rmax)
             cornerRadius = rmax;
         if (cornerRadius < 0)
             cornerRadius = 0;
-        nvgBeginPath(vg);
-        nvgRoundedRect(vg, (float)rectX, (float)rectY, (float)rectWidth, (float)rectHeight, (float)cornerRadius);
-        nvgFillColor(vg, toNVG(color));
-        nvgFill(vg);
+        fillRoundedRaw((float)rectX, (float)rectY, (float)rectWidth, (float)rectHeight, (float)cornerRadius, color);
     }
 
     void PKSEFramebuffer::drawRoundedRect(int rectX, int rectY, int rectWidth, int rectHeight, int cornerRadius,
@@ -333,6 +355,10 @@ namespace UI
     {
         if (rectWidth <= 0 || rectHeight <= 0 || thickness <= 0 || !ensureFrame())
             return;
+        cornerRadius = pkRadius(cornerRadius, rectWidth, rectHeight);
+        // PKForge panels carry a 2 dp cobalt bezel, not a hairline.
+        if (isPkForgeTheme() && thickness == 1 && color == Colors::Border)
+            thickness = 2;
         int rmax = std::min(rectWidth, rectHeight) / 2;
         if (cornerRadius > rmax)
             cornerRadius = rmax;
@@ -351,6 +377,22 @@ namespace UI
     {
         if (radius <= 0 || !ensureFrame())
             return;
+        if (isPkForgeFocusFill(color))
+        {
+            // A focused round control: the selected-button body with its pale rim.
+            NVGpaint body = nvgLinearGradient(vg, 0, (float)(centerY - radius), 0, (float)(centerY + radius),
+                                              toNVG(Color(0x5D, 0x7B, 0xB2)), toNVG(Color(0x28, 0x48, 0x89)));
+            nvgBeginPath(vg);
+            nvgCircle(vg, (float)centerX, (float)centerY, (float)radius);
+            nvgFillPaint(vg, body);
+            nvgFill(vg);
+            nvgBeginPath(vg);
+            nvgCircle(vg, (float)centerX, (float)centerY, radius - 1.5f);
+            nvgStrokeColor(vg, toNVG(Color(0xF4, 0xF8, 0xFF, 0x70)));
+            nvgStrokeWidth(vg, 1.2f);
+            nvgStroke(vg);
+            return;
+        }
         nvgBeginPath(vg);
         nvgCircle(vg, (float)centerX, (float)centerY, (float)radius);
         nvgFillColor(vg, toNVG(color));
@@ -701,12 +743,21 @@ namespace UI
 
     void PKSEFramebuffer::drawPill(int pillX, int pillY, int pillWidth, int pillHeight, Color color)
     {
+        // PKForge has no stadiums: rows, tabs and chips are UiTokens.ControlRadius (4) rectangles.
+        if (isPkForgeTheme())
+        {
+            if (isPkForgeFocusFill(color))
+                pkSelectedButton(pillX, pillY, pillWidth, pillHeight, 4);
+            else
+                fillRoundedRaw((float)pillX, (float)pillY, (float)pillWidth, (float)pillHeight, 4.0f, color);
+            return;
+        }
         drawFilledRoundedRect(pillX, pillY, pillWidth, pillHeight, pillHeight / 2, color);
     }
     void PKSEFramebuffer::drawPillBorder(int pillX, int pillY, int pillWidth, int pillHeight, Color color,
                                          int thickness)
     {
-        drawRoundedRect(pillX, pillY, pillWidth, pillHeight, pillHeight / 2, color, thickness);
+        drawRoundedRect(pillX, pillY, pillWidth, pillHeight, isPkForgeTheme() ? 4 : pillHeight / 2, color, thickness);
     }
 
     void PKSEFramebuffer::drawFilledEllipse(int centerX, int centerY, int radiusX, int rectY, Color color)
@@ -723,6 +774,13 @@ namespace UI
     {
         if (shadowWidth <= 0 || shadowHeight <= 0 || !ensureFrame())
             return;
+        if (isPkForgeTheme())
+        {
+            // PksmPaint.Panel: a hard 3 dp pixel drop in LogoVoid, no glow.
+            fillRoundedRaw(shadowX + 3.0f, shadowY + 3.0f, (float)shadowWidth, (float)shadowHeight,
+                           (float)std::min(cornerRadius, 6), Color(0x14, 0x12, 0x1D, 0x88));
+            return;
+        }
         // Real feathered drop shadow: box gradient in the ring around the element (hole in the middle).
         NVGpaint shadowPaint =
             nvgBoxGradient(vg, (float)shadowX, shadowY + 3.0f, (float)shadowWidth, (float)shadowHeight,
@@ -916,7 +974,10 @@ namespace UI
             return iterator->second;
 
         // Mipmaps so downscaled sprites (box grid / party / menu) stay crisp instead of shimmering.
-        const int flags = NVG_IMAGE_GENERATE_MIPMAPS;
+        // PKForge draws its small pixel art (box icons, items, PKSM icons) nearest-neighbour, so the
+        // pixels stay square; larger art (HD renders, covers) keeps the mipmapped path.
+        const bool pixelArt = isPkForgeTheme() && imageWidth <= 128 && imageHeight <= 128;
+        const int flags = pixelArt ? NVG_IMAGE_NEAREST : NVG_IMAGE_GENERATE_MIPMAPS;
         int image = -1;
         if (channels == 4)
         {
@@ -995,6 +1056,11 @@ namespace UI
 
     void PKSEFramebuffer::drawCard(int cardX, int cardY, int cardWidth, int cardHeight)
     {
+        if (isPkForgeTheme())
+        {
+            pkPanel(cardX, cardY, cardWidth, cardHeight);
+            return;
+        }
         drawFilledRoundedRect(cardX, cardY, cardWidth, cardHeight, 14, Colors::Panel);
         drawRoundedRect(cardX, cardY, cardWidth, cardHeight, 14, Colors::Border, 1);
     }
@@ -1002,12 +1068,33 @@ namespace UI
     void PKSEFramebuffer::drawSelectionHighlight(int highlightX, int highlightY, int highlightWidth,
                                                  int highlightHeight)
     {
+        if (isPkForgeTheme())
+        {
+            pkSelectedButton(highlightX, highlightY, highlightWidth, highlightHeight, 4);
+            return;
+        }
         drawFilledRoundedRect(highlightX, highlightY, highlightWidth, highlightHeight, 10, Colors::Selected);
         drawRoundedRect(highlightX, highlightY, highlightWidth, highlightHeight, 10, Colors::Accent, 2);
     }
 
+    void PKSEFramebuffer::drawCardBand(int bandX, int bandY, int bandWidth, int bandHeight)
+    {
+        if (isPkForgeTheme())
+        {
+            pkHeaderStrip(bandX + 6, bandY + 6, bandWidth - 12, bandHeight - 8);
+            return;
+        }
+        drawFilledRoundedRect(bandX, bandY, bandWidth, bandHeight, 16, Colors::AccentDim);
+        drawFilledRect(bandX, bandY + bandHeight - 16, bandWidth, 16, Colors::AccentDim); // square the bottom edge
+    }
+
     void PKSEFramebuffer::drawHDivider(int dividerX, int dividerY, int dividerWidth)
     {
+        if (isPkForgeTheme())
+        {
+            drawFilledRect(dividerX, dividerY, dividerWidth, 2, Color(0x2B, 0x4E, 0x95, 0x70)); // UiTokens.Divider
+            return;
+        }
         drawFilledRect(dividerX, dividerY, dividerWidth, 2, Colors::Border);
     }
 
@@ -1262,132 +1349,278 @@ namespace UI
 
     void PKSEFramebuffer::drawRetroDSPanel(int x, int y, int width, int height, int radius, Color body)
     {
-        if (width <= 0 || height <= 0 || !ensureFrame())
-            return;
-
-        // Hard 3px pixel drop shadow in LogoVoid (#14121D with alpha 0x88)
-        drawFilledRoundedRect(x + 3, y + 3, width, height, radius, Color(0x14, 0x12, 0x1D, 0x88));
-
-        // Panel body fill
-        drawFilledRoundedRect(x, y, width, height, radius, body);
-
-        // Top specular light / sheen (upper third, min 24px)
-        int lightH = std::min(26, height / 3);
-        if (lightH > 4)
-        {
-            NVGpaint sheenPaint = nvgLinearGradient(vg, (float)(x + 2), (float)(y + 2),
-                                                    (float)(x + 2), (float)(y + 2 + lightH),
-                                                    toNVG(lighterColor(body, 0.07f)),
-                                                    toNVG(body));
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, (float)(x + 2), (float)(y + 2), (float)(width - 4), (float)lightH,
-                           static_cast<float>(std::max(1, radius - 2)));
-            nvgFillPaint(vg, sheenPaint);
-            nvgFill(vg);
-        }
-
-        // 2px cobalt bezel (LogoGrid: #2B4E95)
-        drawRoundedRect(x, y, width, height, radius, Color(0x2B, 0x4E, 0x95), 2);
+        pkPanel(x, y, width, height, body, radius);
     }
 
-    void PKSEFramebuffer::drawRetroDSHeaderStrip(int x, int y, int width, int height, const char *label, Color accent, TextStyle style)
+    void PKSEFramebuffer::drawRetroDSHeaderStrip(int x, int y, int width, int height, const char *label, Color accent,
+                                                 TextStyle style)
     {
-        if (width <= 0 || height <= 0 || !ensureFrame())
-            return;
+        pkHeaderStrip(x, y, width, height, label ? label : "", accent, false, style);
+    }
 
-        constexpr int radius = 4;
-        // Outer void outline (#14121D)
-        drawFilledRoundedRect(x, y, width, height, radius, Color(0x14, 0x12, 0x1D));
-
-        // Vertical gradient body: lighter on top, darker on bottom
-        NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
-                                          (float)(x + 1), (float)(y + height - 1),
-                                          toNVG(lighterColor(accent, 0.18f)),
-                                          toNVG(darkerColor(accent, 0.12f)));
-        nvgBeginPath(vg);
-        nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
-        nvgFillPaint(vg, grad);
-        nvgFill(vg);
-
-        // Subtle top glass gloss sheen (upper half)
-        nvgBeginPath(vg);
-        nvgRoundedRect(vg, (float)(x + 2), (float)(y + 2), (float)(width - 4), (float)(height / 2 - 1), 2.0f);
-        nvgFillColor(vg, nvgRGBA(255, 255, 255, 24));
-        nvgFill(vg);
-
-        // If label provided, draw drop shadow text + crisp foreground text
+    void PKSEFramebuffer::drawRetroDSButton(int x, int y, int width, int height, const char *label, bool selected,
+                                            Color accent, int radius)
+    {
+        if (selected)
+            pkSelectedButton(x, y, width, height, radius, accent == Colors::Accent ? Pksm::HeaderBlue : accent);
+        else
+            pkBlackButton(x, y, width, height, radius);
         if (label && label[0] != '\0')
         {
             int tw = 0, th = 0;
-            measureText(label, tw, th, style);
-            int textY = y + (height - th) / 2;
-
-            // 1px pixel drop shadow in LogoVoid (#14121D)
-            drawText(x + 12 + 1, textY + 1, label, Color(0x14, 0x12, 0x1D, 0xA0), style);
-            // Foreground white/pale ink
-            drawText(x + 12, textY, label, Color(0xF4, 0xF8, 0xFF), style);
+            measureText(label, tw, th, TextStyle::Body);
+            drawText(x + (width - tw) / 2, y + (height - th) / 2, label, selected ? Pksm::Ink : Pksm::Ink,
+                     TextStyle::Body);
         }
     }
 
-    void PKSEFramebuffer::drawRetroDSButton(int x, int y, int width, int height, const char *label, bool selected, Color accent, int radius)
+    // ── PKForge chrome (PKForge.Chrome/PksmPaint.cs) ──────────────────────────────────────────
+
+    void PKSEFramebuffer::fillRoundedRaw(float x, float y, float w, float h, float radius, Color color)
     {
-        if (width <= 0 || height <= 0 || !ensureFrame())
+        if (w <= 0 || h <= 0 || !ensureFrame())
             return;
+        radius = std::max(0.0f, std::min(radius, std::min(w, h) / 2));
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, x, y, w, h, radius);
+        nvgFillColor(vg, toNVG(color));
+        nvgFill(vg);
+    }
 
-        // Outer void outline (#14121D)
-        drawFilledRoundedRect(x, y, width, height, radius, Color(0x14, 0x12, 0x1D));
+    void PKSEFramebuffer::fillGradientRaw(float x, float y, float w, float h, float radius, Color top, Color bottom)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        radius = std::max(0.0f, std::min(radius, std::min(w, h) / 2));
+        NVGpaint paint = nvgLinearGradient(vg, 0, y, 0, y + h, toNVG(top), toNVG(bottom));
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, x, y, w, h, radius);
+        nvgFillPaint(vg, paint);
+        nvgFill(vg);
+    }
 
-        if (!selected)
+    void PKSEFramebuffer::strokeRoundedRaw(float x, float y, float w, float h, float radius, Color color, float t)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        radius = std::max(0.0f, std::min(radius, std::min(w, h) / 2));
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, x, y, w, h, radius);
+        nvgStrokeColor(vg, toNVG(color));
+        nvgStrokeWidth(vg, t);
+        nvgStroke(vg);
+    }
+
+    // The exact visual rhythm of the logo background: navy field, crisp cobalt grid.
+    void PKSEFramebuffer::pkLogoGrid(int x, int y, int w, int h, int cell, int lineWidth)
+    {
+        if (!ensureFrame())
+            return;
+        drawFilledRect(x, y, w, h, Pksm::Housing);
+        const Color line(Pksm::LogoGrid.red, Pksm::LogoGrid.green, Pksm::LogoGrid.blue, 0xD0);
+        const int ox = x % cell, oy = y % cell;
+        for (int gx = x - ox; gx <= x + w; gx += cell)
+            drawFilledRect(gx, y, lineWidth, h, line);
+        for (int gy = y - oy; gy <= y + h; gy += cell)
+            drawFilledRect(x, gy, w, lineWidth, line);
+    }
+
+    // The device panel: navy body, a faint light along the top edge, the 2 dp cobalt bezel and a
+    // hard 3 dp pixel drop shadow. No glow.
+    void PKSEFramebuffer::pkPanel(int x, int y, int w, int h, Color fill, int radius)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        const float r = (float)radius;
+        fillRoundedRaw(x + 3.0f, y + 3.0f, (float)w, (float)h, r, Color(0x14, 0x12, 0x1D, 0x88));
+        fillRoundedRaw((float)x, (float)y, (float)w, (float)h, r, fill);
+        const float lightH = std::min(26.0f, h / 3.0f);
+        fillGradientRaw(x + 2.0f, y + 2.0f, w - 4.0f, lightH, std::max(1.0f, r - 2), lighterColor(fill, 0.05f), fill);
+        strokeRoundedRaw(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, r, Pksm::PaperEdge, 2.0f);
+    }
+
+    // The resting menu button: void outline, navy body with a whisper of gradient, a 1.5 dp cobalt edge.
+    void PKSEFramebuffer::pkBlackButton(int x, int y, int w, int h, int radius)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        const float r = (float)radius;
+        fillRoundedRaw((float)x, (float)y, (float)w, (float)h, r, Pksm::LogoVoid);
+        fillGradientRaw(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, std::max(0.0f, r - 1), lighterColor(Pksm::LogoDeck, 0.04f),
+                        darkerColor(Pksm::LogoDeck, 0.05f));
+        strokeRoundedRaw(x + 1.75f, y + 1.75f, w - 3.5f, h - 3.5f, std::max(0.0f, r - 1), Pksm::LogoGrid, 1.5f);
+    }
+
+    // The selected / active button: the accent body (cobalt by default) with a soft top light and the
+    // thin pale focus rim. Never a cyan halo.
+    void PKSEFramebuffer::pkSelectedButton(int x, int y, int w, int h, int radius, Color accent)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        const float r = (float)radius;
+        fillRoundedRaw((float)x, (float)y, (float)w, (float)h, r, Pksm::LogoVoid);
+        fillGradientRaw(x + 1.5f, y + 1.5f, w - 3.0f, h - 3.0f, std::max(0.0f, r - 1), lighterColor(accent, 0.18f),
+                        darkerColor(accent, 0.08f));
+        strokeRoundedRaw(x + 2.1f, y + 2.1f, w - 4.2f, h - 4.2f, std::max(0.0f, r - 1), Color(0xF4, 0xF8, 0xFF, 0x70), 1.2f);
+    }
+
+    // Header strip: accent body (cobalt by default), soft top light, dark outline, white caption.
+    void PKSEFramebuffer::pkHeaderStrip(int x, int y, int w, int h, const std::string &label, Color accent, bool centred,
+                                        TextStyle style)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        fillRoundedRaw((float)x, (float)y, (float)w, (float)h, 4.0f, Pksm::LogoVoid);
+        fillGradientRaw(x + 1.5f, y + 1.5f, w - 3.0f, h - 3.0f, 3.0f, lighterColor(accent, 0.16f), darkerColor(accent, 0.1f));
+        fillRoundedRaw(x + 2.5f, y + 2.5f, w - 5.0f, h / 2.0f - 2.5f, 2.0f, Color(255, 255, 255, 0x16));
+        if (!label.empty())
         {
-            // Resting / Idle Button: LogoDeck body with subtle gradient and 1.5px LogoGrid edge
-            Color deck = Color(0x1B, 0x24, 0x47);
-            NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
-                                              (float)(x + 1), (float)(y + height - 1),
-                                              toNVG(lighterColor(deck, 0.05f)),
-                                              toNVG(darkerColor(deck, 0.06f)));
-            nvgBeginPath(vg);
-            nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
-            nvgFillPaint(vg, grad);
-            nvgFill(vg);
-
-            drawRoundedRect(x + 1, y + 1, width - 2, height - 2, radius - 1, Color(0x2B, 0x4E, 0x95), 1);
-
-            if (label && label[0] != '\0')
-            {
-                int tw = 0, th = 0;
-                measureText(label, tw, th, TextStyle::Body);
-                drawText(x + (width - tw) / 2, y + (height - th) / 2, label, Color(0xA8, 0xBA, 0xDC), TextStyle::Body);
-            }
+            int tw = 0, th = 0;
+            measureText(label, tw, th, style);
+            const int tx = centred ? x + (w - tw) / 2 : x + 10;
+            const int ty = textYCenteredOn(y + h / 2, style);
+            drawText(tx + 1, ty + 1, label, Color(0x14, 0x12, 0x1D, 0x90), style);
+            drawText(tx, ty, label, Color(255, 255, 255), style);
         }
+    }
+
+    // List row inside a panel: soft stripe idle; the selected button look chosen.
+    void PKSEFramebuffer::pkStripeRow(int x, int y, int w, int h, bool selected)
+    {
+        if (selected)
+            pkSelectedButton(x, y, w, h, 4);
         else
+            fillRoundedRaw((float)x, (float)y, (float)w, (float)h, 3.0f,
+                           Color(Pksm::PaperShade.red, Pksm::PaperShade.green, Pksm::PaperShade.blue, 0x70));
+    }
+
+    void PKSEFramebuffer::pkWallpaper(int x, int y, int w, int h, Color base)
+    {
+        if (!ensureFrame())
+            return;
+        drawFilledRect(x, y, w, h, base);
+        Color grid = Pksm::wallpaperShade(base);
+        grid.alpha = 0x60;
+        for (int gx = x + 18; gx < x + w; gx += 30)
+            drawFilledRect(gx, y, 2, h, grid);
+        for (int gy = y + 18; gy < y + h; gy += 30)
+            drawFilledRect(x, gy, w, 2, grid);
+    }
+
+    void PKSEFramebuffer::pkEmptySlot(int x, int y, int w, int h, Color wallpaper)
+    {
+        if (!ensureFrame())
+            return;
+        Color shade = Pksm::wallpaperShade(wallpaper);
+        shade.alpha = 0x66;
+        const float cx = x + w / 2.0f, cy = y + h / 2.0f, rad = w * 0.16f;
+        nvgStrokeColor(vg, toNVG(shade));
+        nvgStrokeWidth(vg, 2.0f);
+        nvgBeginPath(vg);
+        nvgCircle(vg, cx, cy, rad);
+        nvgStroke(vg);
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, cx, cy - rad);
+        nvgLineTo(vg, cx, cy + rad);
+        nvgStroke(vg);
+        nvgBeginPath(vg);
+        nvgCircle(vg, cx, cy, 3.0f);
+        nvgStroke(vg);
+    }
+
+    // Box banner: a header strip with the name centred and two small menu-button caps carrying the
+    // chevrons (dimmed when there is nowhere to go).
+    void PKSEFramebuffer::pkBoxNameBar(int x, int y, int w, int h, const std::string &label, bool canPrev, bool canNext)
+    {
+        if (w <= 0 || h <= 0 || !ensureFrame())
+            return;
+        pkHeaderStrip(x, y, w, h, label, Pksm::HeaderBlue, true);
+        const int inset = 2 + 2; // the strip's outline + the cap margin
+        const int capW = static_cast<int>((h - 3) * 1.15f);
+        auto cap = [&](int cx, bool left, bool enabled)
         {
-            // Selected / Active Button: Vibrant accent gradient, pale focus rim, corner brackets
-            NVGpaint grad = nvgLinearGradient(vg, (float)(x + 1), (float)(y + 1),
-                                              (float)(x + 1), (float)(y + height - 1),
-                                              toNVG(lighterColor(accent, 0.20f)),
-                                              toNVG(darkerColor(accent, 0.10f)));
+            pkBlackButton(cx, y + inset, capW, h - inset * 2, 3);
+            const float mx = cx + capW / 2.0f, my = y + h / 2.0f;
+            const float arm = std::min(4.5f, (h - inset * 2) * 0.2f) * 1.6f;
             nvgBeginPath(vg);
-            nvgRoundedRect(vg, (float)(x + 1), (float)(y + 1), (float)(width - 2), (float)(height - 2), static_cast<float>(radius - 1));
-            nvgFillPaint(vg, grad);
-            nvgFill(vg);
-
-            // Thin pale focus rim (#F4F8FF with alpha 0x70)
-            drawRoundedRect(x + 1, y + 1, width - 2, height - 2, radius - 1, Color(0xF4, 0xF8, 0xFF, 0x70), 1);
-
-            // Animated corner brackets in accent color
-            float pulse = std::sin(static_cast<float>(getTimeSeconds()) * 5.0f) * 1.5f;
-            drawCornerBrackets(x, y, width, height, 6, 2, accent, pulse);
-
-            if (label && label[0] != '\0')
+            if (left)
             {
-                int tw = 0, th = 0;
-                measureText(label, tw, th, TextStyle::Body);
-                // Drop shadow text
-                drawText(x + (width - tw) / 2 + 1, y + (height - th) / 2 + 1, label, Color(0x14, 0x12, 0x1D, 0x90), TextStyle::Body);
-                // Crisp white text
-                drawText(x + (width - tw) / 2, y + (height - th) / 2, label, Color(0xF4, 0xF8, 0xFF), TextStyle::Body);
+                nvgMoveTo(vg, mx + arm * 0.6f, my - arm);
+                nvgLineTo(vg, mx - arm * 0.6f, my);
+                nvgLineTo(vg, mx + arm * 0.6f, my + arm);
             }
-        }
+            else
+            {
+                nvgMoveTo(vg, mx - arm * 0.6f, my - arm);
+                nvgLineTo(vg, mx + arm * 0.6f, my);
+                nvgLineTo(vg, mx - arm * 0.6f, my + arm);
+            }
+            Color ink = Pksm::Ink;
+            if (!enabled)
+                ink.alpha = 0x40;
+            nvgStrokeColor(vg, toNVG(ink));
+            nvgStrokeWidth(vg, 2.6f);
+            nvgLineCap(vg, NVG_ROUND);
+            nvgLineJoin(vg, NVG_ROUND);
+            nvgStroke(vg);
+        };
+        cap(x + inset, true, canPrev);
+        cap(x + w - inset - capW, false, canNext);
+    }
+
+    // Selection on a slot: red corner brackets, the one grid selection (PksmPaint.Selection).
+    void PKSEFramebuffer::pkSelection(int x, int y, int w, int h, Color color)
+    {
+        const int arm = std::min(14, static_cast<int>(std::min(w, h) * 0.4f));
+        const int l = x - 2, t = y - 2, r = x + w + 2, b = y + h + 2, k = 4;
+        drawFilledRect(l, t, arm, k, color);
+        drawFilledRect(l, t, k, arm, color);
+        drawFilledRect(r - arm, t, arm, k, color);
+        drawFilledRect(r - k, t, k, arm, color);
+        drawFilledRect(l, b - k, arm, k, color);
+        drawFilledRect(l, b - arm, k, arm, color);
+        drawFilledRect(r - arm, b - k, arm, k, color);
+        drawFilledRect(r - k, b - arm, k, arm, color);
+    }
+
+    // Grab state: the slot ghost when carrying a mon (light-blue dashes).
+    void PKSEFramebuffer::pkCarryGhost(int x, int y, int w, int h)
+    {
+        if (!ensureFrame())
+            return;
+        const float x0 = x + 1.5f, y0 = y + 1.5f, x1 = x + w - 1.5f, y1 = y + h - 1.5f;
+        auto dashes = [&](float ax, float ay, float bx, float by)
+        {
+            const float len = std::hypot(bx - ax, by - ay);
+            for (float d = 0; d < len; d += 11.0f)
+            {
+                const float e = std::min(len, d + 6.0f);
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, ax + (bx - ax) * d / len, ay + (by - ay) * d / len);
+                nvgLineTo(vg, ax + (bx - ax) * e / len, ay + (by - ay) * e / len);
+                nvgStrokeColor(vg, toNVG(Pksm::SelectBorder));
+                nvgStrokeWidth(vg, 3.0f);
+                nvgStroke(vg);
+            }
+        };
+        dashes(x0, y0, x1, y0);
+        dashes(x1, y0, x1, y1);
+        dashes(x1, y1, x0, y1);
+        dashes(x0, y1, x0, y0);
+    }
+
+    void PKSEFramebuffer::pkBattery(int x, int y, int percent)
+    {
+        if (!ensureFrame())
+            return;
+        // 22x12 outline, 2 px InkSoft stroke, green fill inset (DsChrome.StatusStrip).
+        strokeRoundedRaw(x + 1.0f, y + 1.0f, 20.0f, 10.0f, 2.0f, Pksm::InkSoft, 2.0f);
+        fillRoundedRaw(x + 22.0f, y + 4.0f, 2.0f, 4.0f, 1.0f, Pksm::InkSoft);
+        const float full = 16.0f;
+        const float level = percent < 0 ? full : full * std::clamp(percent, 0, 100) / 100.0f;
+        const Color fill = (percent >= 0 && percent <= 15) ? Pksm::Illegal : Pksm::Legal;
+        if (level > 0)
+            fillRoundedRaw(x + 3.0f, y + 3.0f, std::max(1.0f, level), 6.0f, 1.0f, fill);
     }
 
     void PKSEFramebuffer::startFade() { fadeStart = totalSeconds; }

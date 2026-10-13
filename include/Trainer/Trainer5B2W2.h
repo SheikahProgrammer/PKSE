@@ -51,6 +51,7 @@ namespace Trainer
 
         const std::vector<uint8_t> &serialize();
         const std::vector<uint8_t> &getSaveData() const noexcept { return saveData; }
+        std::vector<uint8_t> &getSaveDataMutable() noexcept { return saveData; }
         const std::string &fileName() const noexcept { return savePath; }
         bool isValid() const noexcept { return valid; }
 
