@@ -307,7 +307,14 @@ namespace UI
                 // never invisible, rather than relying on the pill's amber highlight alone.
                 if (cursorSlot < 0)
                 {
-                    framebuffer.drawPointerCursor(g.pillCx, g.pillTop - 2 + bobOffset, GRID_CURSOR_HEIGHT, cursorColor);
+                    // The same spring as the slots, aimed so the arrow's tip lands just over the pill:
+                    // moving up onto the box name (and back down) glides instead of jumping.
+                    float headerX, headerY;
+                    framebuffer.glide("storage.cursor", static_cast<float>(g.pillCx),
+                                      static_cast<float>(g.pillTop + g.discR + 1), headerX, headerY);
+                    framebuffer.drawPointerCursor(static_cast<int>(std::lround(headerX)),
+                                                  static_cast<int>(std::lround(headerY)) - g.discR - 3 + bobOffset,
+                                                  GRID_CURSOR_HEIGHT, cursorColor);
                     return; // the header is unreachable while carrying
                 }
 

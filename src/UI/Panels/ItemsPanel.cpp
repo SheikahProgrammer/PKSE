@@ -1,8 +1,10 @@
+#include <cmath>
 #include <algorithm>
 #include <string>
 #include <vector>
 
 #include "UI/Panels/ItemsPanel.h"
+#include "UI/ScreenChrome.h"
 #include "UI/TrainerViewScreen.h"
 #include "UI/Common.h"
 #include "UI/ListSearch.h"
@@ -113,7 +115,12 @@ namespace UI
 
             const int startIdx = screen.currentPage * itemsPerPage;
             const int endIdx = std::min(startIdx + itemsPerPage, total);
-            int rectY = itemsY + headerHeight + listSearchBoxHeight() + 36;
+            const int listTop = itemsY + headerHeight + listSearchBoxHeight() + 36;
+            // A new page slides in from the way it was paged (see easedPageShift) instead of swapping in place.
+            const int pageH = itemsPerPage * rowPitch;
+            const int pageShift = static_cast<int>(std::lround(easedPageShift(framebuffer, "items.page", screen.currentPage, pageH)));
+            framebuffer.setClipRect(itemsX, listTop - 4, itemsWidth, pageH + 4);
+            int rectY = listTop + pageShift;
             for (int itemRowIndex = startIdx; itemRowIndex < endIdx; ++itemRowIndex)
             {
                 const InventoryItem &item = pouch[visible[itemRowIndex]];
@@ -147,9 +154,10 @@ namespace UI
                 framebuffer.measureText(countText, countTextWidth, ch, TextStyle::Body);
                 framebuffer.drawText(tileX + tileW - 24 - countTextWidth, rectY + (tileH - ch) / 2, countText,
                                      selected ? Colors::PrimaryText : Colors::TextDim, TextStyle::Body);
-                screen.touchButtons.push_back({itemRowIndex, tileX, rectY, tileW, tileH}); // id = absolute item index
+                screen.touchButtons.push_back({itemRowIndex, tileX, rectY - pageShift, tileW, tileH}); // id = absolute item index
                 rectY += rowPitch;
             }
+            framebuffer.clearClip();
         }
     }
 }

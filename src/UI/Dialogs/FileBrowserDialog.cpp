@@ -1,3 +1,4 @@
+#include <cmath>
 #include "UI/Dialogs/FileBrowserDialog.h"
 
 #include <algorithm>
@@ -394,11 +395,15 @@ namespace UI
                 framebuffer.drawText(dialogX + 32, listY + 16, message, Colors::TextDim, TextStyle::Body);
             }
 
-            const int last = std::min(count, entryStatus.scroll + FileBrowserState::VISIBLE_ROWS);
-            for (int index = entryStatus.scroll; index < last; ++index)
+            // Eased: the window slides to `scroll` (see easedListShift), one extra row each side, clipped.
+            const int windowH = FileBrowserState::VISIBLE_ROWS * rowH;
+            const float shift = easedListShift(framebuffer, "fileBrowser.list", entryStatus.scroll, rowH);
+            const int last = std::min(count, entryStatus.scroll + FileBrowserState::VISIBLE_ROWS + 1);
+            framebuffer.setClipRect(dialogX + 4, listY, dialogWidth - 8, windowH);
+            for (int index = std::max(0, entryStatus.scroll - 1); index < last; ++index)
             {
                 const auto &e = entryStatus.entries[index];
-                const int rectY = listY + (index - entryStatus.scroll) * rowH;
+                const int rectY = listY + (index - entryStatus.scroll) * rowH + static_cast<int>(std::lround(shift));
                 const bool selected = (index == entryStatus.selectedIndex);
                 if (selected)
                     framebuffer.drawSelectionHighlight(dialogX + 12, rectY + 3, dialogWidth - 24, rowH - 6);
@@ -428,8 +433,10 @@ namespace UI
                     framebuffer.drawText(dialogX + dialogWidth - 32 - sizeTextWidth, rectY + (rowH - sh) / 2, sizeText,
                                          Colors::TextDim, TextStyle::Caption);
                 }
-                taps.push_back({index, dialogX + 12, rectY, dialogWidth - 24, rowH});
+                if (rectY >= listY && rectY + rowH <= listY + windowH)
+                    taps.push_back({index, dialogX + 12, rectY, dialogWidth - 24, rowH});
             }
+            framebuffer.clearClip();
 
             drawScrollbar(framebuffer, dialogX + dialogWidth - 14, listY, FileBrowserState::VISIBLE_ROWS * rowH,
                           count * rowH, entryStatus.scroll);

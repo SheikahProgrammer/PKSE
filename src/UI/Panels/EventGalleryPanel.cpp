@@ -1,3 +1,4 @@
+#include <cmath>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -122,15 +123,19 @@ namespace Panels {
             if (totalCount == 0) {
                 fb.drawText(lX + 40, lY + 100, "No events match your filter / search.", Colors::TextDim, TextStyle::Body);
             } else {
-                for (int r = 0; r < visibleRows; ++r) {
+                const float shift = easedListShift(fb, "events.list", screen.eventScrollOffset, rowH + rowGap);
+                const int listBottom = lY + lH - 6;
+                fb.setClipRect(lX + 2, lY + 4, lW - 4, lH - 8);
+                for (int r = -1; r <= visibleRows; ++r) {
                     int itemIdx = screen.eventScrollOffset + r;
+                    if (itemIdx < 0) continue;
                     if (itemIdx >= totalCount) break;
 
                     size_t dbIdx = list[itemIdx];
                     const auto* rec = db.getEvent(dbIdx);
                     if (!rec) continue;
 
-                    const int ry = listTop + r * (rowH + rowGap);
+                    const int ry = listTop + r * (rowH + rowGap) + static_cast<int>(std::lround(shift));
                     const int rx = lX + 10, rw = lW - 20;
                     const bool focused = (itemIdx == screen.eventSelectedIndex);
 
@@ -176,8 +181,10 @@ namespace Panels {
                     const int dotX = rx + rw - 24, dotY = ry + rowH / 2;
                     fb.drawFilledCircle(dotX, dotY, 6, compat ? Colors::Green : Colors::Accent);
 
-                    screen.touchButtons.push_back({ 3000 + itemIdx, rx, ry, rw, rowH });
+                    if (ry >= listTop && ry + rowH <= listBottom)
+                        screen.touchButtons.push_back({ 3000 + itemIdx, rx, ry, rw, rowH });
                 }
+                fb.clearClip();
 
                 // Scrollbar
                 if (totalCount > visibleRows) {
@@ -375,12 +382,16 @@ namespace Panels {
                 int ly = lY + 40;
                 for (const auto &line : lines) { fb.drawText(lX + 30, ly, line, Colors::TextDim, TextStyle::Body); ly += 30; }
             } else {
-                for (int r = 0; r < visibleRows; ++r) {
+                const float shift = easedListShift(fb, "events.keyList", screen.keyEventScrollOffset, rowH + rowGap);
+                const int listBottom = lY + lH - 6;
+                fb.setClipRect(lX + 2, lY + 4, lW - 4, lH - 8);
+                for (int r = -1; r <= visibleRows; ++r) {
                     const int itemIdx = screen.keyEventScrollOffset + r;
+                    if (itemIdx < 0) continue;
                     if (itemIdx >= totalCount) break;
 
                     const auto& ev = keyEvents[itemIdx];
-                    const int ry = listTop + r * (rowH + rowGap);
+                    const int ry = listTop + r * (rowH + rowGap) + static_cast<int>(std::lround(shift));
                     const int rx = lX + 10, rw = lW - 20;
                     const bool focused = (itemIdx == screen.keyEventSelectedIndex);
 
@@ -411,8 +422,10 @@ namespace Panels {
                     fb.drawText(rx + rw - bw - 20, ry + 16, label, focused && stCol == Colors::TextDim ? Colors::PrimaryText : stCol,
                                 TextStyle::Caption);
 
-                    screen.touchButtons.push_back({ 4000 + itemIdx, rx, ry, rw, rowH });
+                    if (ry >= listTop && ry + rowH <= listBottom)
+                        screen.touchButtons.push_back({ 4000 + itemIdx, rx, ry, rw, rowH });
                 }
+                fb.clearClip();
 
                 if (totalCount > visibleRows) {
                     const int sbX = lX + lW - 8, sbY = lY + 16, sbH = lH - 32;

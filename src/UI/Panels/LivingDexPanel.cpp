@@ -208,12 +208,15 @@ namespace UI
             const int pageCount = std::max(1, (totalFiltered + pageSize - 1) / pageSize);
             screen.livingDexPage = std::clamp(screen.livingDexPage, 0, pageCount - 1);
 
+            // A new page slides in from the side it was paged toward (see easedPageShift).
+            const int pageShift = static_cast<int>(std::lround(easedPageShift(framebuffer, "dex.page", screen.livingDexPage, gridW)));
+            framebuffer.setClipRect(gridX - 4, gridY - 4, gridW + 8, gridH + 8);
             for (int r = 0; r < rows; ++r)
             {
                 for (int c = 0; c < cols; ++c)
                 {
                     const int slotIdx = r * cols + c;
-                    const int cardX = gridX + c * (cardW + gapX);
+                    const int cardX = gridX + c * (cardW + gapX) + pageShift;
                     const int cardY = gridY + r * (cardH + gapY);
                     const int filteredIdx = screen.livingDexPage * pageSize + slotIdx;
 
@@ -327,6 +330,7 @@ namespace UI
                     screen.touchButtons.push_back({3100 + slotIdx, cardX, cardY, cardW, cardH});
                 }
             }
+            framebuffer.clearClip();
 
             // =========================================================================
             // 4. CURSOR PREVIEW & TYPE BANNER
