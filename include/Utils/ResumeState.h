@@ -11,7 +11,7 @@ namespace Utils
      *
      * Persisted in sdmc:/PKSE/resume.cfg as `[section]` blocks of key=value lines, so it also
      * survives closing the app. One section per save (keyed by title + account, or by file path
-     * for a loose save -- an emulator save under the Tico or Citra user) plus one for the save
+     * for a loose save -- an emulator save from Azahar, melonDS or RetroArch) plus one for the save
      * picker itself. The newest sections are kept first and the oldest dropped past a cap: this
      * is a convenience, and a file that only grows would be a bug.
      *

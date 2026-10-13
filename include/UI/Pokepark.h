@@ -378,6 +378,11 @@ namespace UI
         bool addResident(const std::string &id, const std::string &source, const Pokemon::Pokemon &mon,
                          const Trainer::Trainer &trainer);
         void removeResidentById(const std::string &id);
+        /// Residents from before the park was shared carry bare "party:N" / "box:B:S" ids and only a
+        /// slot for where they came from. When a game is opened, any whose slot in it still holds the
+        /// same species are claimed by it: their id gains the game, and "From" names it.
+        void adoptLegacyResidents(const Trainer::Trainer &trainer, const std::string &gameKey,
+                                  const std::string &gameName);
 
 
         // Persistence

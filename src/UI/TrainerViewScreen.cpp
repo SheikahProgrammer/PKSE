@@ -860,6 +860,7 @@ namespace UI
 
         // Initialize Poképark Living Habitat
         UI::PokeparkManager::instance().initialize(&trainer, bank.get());
+        UI::PokeparkManager::instance().adoptLegacyResidents(trainer, resumeKey(), titleName);
 
         // Open the test trace with everything needed to interpret the rest of the run: which build,
         // which game, where the save came from, and the state of every setting that changes
@@ -8256,8 +8257,8 @@ namespace UI
     std::string TrainerViewScreen::resumeKey() const
     {
         // A title session is the title + the account that owns the save: two users may have the
-        // same game, and the backup folder changes with every snapshot. A loose save (the Tico and
-        // Citra users, a file browsed to) has no title id, and its path is what identifies it.
+        // same game, and the backup folder changes with every snapshot. A loose save (an emulator
+        // save, or a file browsed to) has no title id, and its path is what identifies it.
         if (titleId == 0)
             return "file:" + backupDir;
         char key[64];

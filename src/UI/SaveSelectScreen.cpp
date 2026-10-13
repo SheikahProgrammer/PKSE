@@ -52,7 +52,7 @@ namespace UI
         char uid[40];
         snprintf(uid, sizeof(uid), "%016lX%016lX", static_cast<unsigned long>(user.accountUid.uid[0]),
                  static_cast<unsigned long>(user.accountUid.uid[1]));
-        // The Tico / Citra entries are not accounts (their uid is zero), so the name tells them apart.
+        // The name rides along so a renamed-but-same account still reads as itself in the log.
         return std::string(uid) + ":" + user.name;
     }
 
@@ -68,7 +68,7 @@ namespace UI
     SaveSelectScreen::SaveSelectScreen()
     {
         loadUsers();
-        loadTicoSaves();
+        loadEmulatorSaves();
         PokeparkManager::instance().loadState(); // the Poképark card names how many live there
 
         const Utils::Resume::Fields fields = Utils::Resume::get(PICKER_RESUME_SECTION);
@@ -765,45 +765,32 @@ namespace UI
         }
     }
 
-    static std::string lowered(const std::string &text)
+    // The emulator that writes a save, from where it lives: an explicit RetroArch / melonDS folder
+    // says so; otherwise the console decides (3DS saves are Azahar's, DS melonDS's, and the Game Boy
+    // family RetroArch's).
+    static std::string emulatorFor(const std::string &path, const std::string &platform)
     {
-        std::string out = text;
-        for (char &c : out)
+        std::string p = path;
+        for (char &c : p)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return out;
-    }
-
-    // A loose save's console, read off where the emulators keep it -- the scanners do not record a
-    // game version for these, so the folder is the only thing that knows.
-    static std::string loosePlatform(const std::string &path)
-    {
-        const std::string p = lowered(path);
-        if (p.find("nintendo 3ds") != std::string::npos || p.find("/3ds") != std::string::npos)
-            return "3DS";
-        if (p.find("/nds") != std::string::npos || p.find("melonds") != std::string::npos)
-            return "DS";
-        if (p.find("/gbc") != std::string::npos)
-            return "GBC";
-        if (p.find("/gba") != std::string::npos)
-            return "GBA";
-        if (p.find("/gb/") != std::string::npos)
-            return "GB";
-        return "";
-    }
-
-    // Which emulator owns a loose save, by the same folders loadTicoSaves() walks.
-    static std::string looseEmulator(const std::string &path)
-    {
-        const std::string p = lowered(path);
-        if (p.find("/tico/system/3ds") != std::string::npos)
-            return "Azahar in Tico";
-        if (p.find("/tico/") != std::string::npos)
-            return "Tico";
         if (p.find("melonds") != std::string::npos)
             return "melonDS";
         if (p.find("/retroarch/") != std::string::npos)
             return "RetroArch";
-        return "SD card";
+        if (platform == "3DS")
+            return "Azahar";
+        if (platform == "DS" || platform == "NDS")
+            return "melonDS";
+        return "RetroArch";
+    }
+
+    static std::string displayPlatform(const std::string &platform) { return platform == "NDS" ? "DS" : platform; }
+
+    static std::string loosePlatform(const SaveSelectScreen::TitleEntry &title) { return displayPlatform(title.platform); }
+
+    static std::string looseEmulator(const SaveSelectScreen::TitleEntry &title)
+    {
+        return title.emulator.empty() ? emulatorFor(title.filePath, title.platform) : title.emulator;
     }
 
     static int platformGeneration(const std::string &platform)
@@ -822,7 +809,7 @@ namespace UI
     static int titleGeneration(const SaveSelectScreen::TitleEntry &title)
     {
         if (title.gameVersion == Enums::GameVersion::Invalid)
-            return title.filePath.empty() ? 8 : platformGeneration(loosePlatform(title.filePath));
+            return title.filePath.empty() ? 8 : platformGeneration(loosePlatform(title));
         return Enums::getVersionGeneration(Enums::getGroupRepVersion(title.gameVersion));
     }
 
@@ -894,7 +881,7 @@ namespace UI
     {
         if (title.filePath.empty())
             return "Switch";
-        const std::string platform = loosePlatform(title.filePath);
+        const std::string platform = loosePlatform(title);
         return platform.empty() ? std::string(consoleCode(titleGeneration(title))) : platform;
     }
 
@@ -1048,7 +1035,7 @@ namespace UI
                 framebuffer.drawText(tileX + (tileW - nw) / 2, cartY + cartH + 14, name, Pksm::Ink);
                 std::string detail = titleConsole(title);
                 if (!title.filePath.empty())
-                    detail += std::string(detail.empty() ? "" : " · ") + looseEmulator(title.filePath);
+                    detail += std::string(detail.empty() ? "" : " · ") + looseEmulator(title);
                 detail = fitWidth(framebuffer, detail, textW, TextStyle::Caption);
                 int dw, dh;
                 framebuffer.measureText(detail, dw, dh, TextStyle::Caption);
@@ -1125,7 +1112,7 @@ namespace UI
             };
             const Field fields[4] = {
                 {"Console", titleConsole(title)},
-                {loose ? "Emulator" : "Trainer", loose ? looseEmulator(title.filePath) : u->name},
+                {loose ? "Emulator" : "Trainer", loose ? looseEmulator(title) : u->name},
                 {"Save", saveText},
                 {"Folder", folderText},
             };
@@ -1307,7 +1294,7 @@ namespace UI
         logEventToFile("OPENSAVE action=PICK file=\"" + picked + "\" size=" + std::to_string(length) + " result=OK");
     }
 
-    // ---- 3DS / Citra / Tico Emulator integration ----
+    // ---- Emulator saves (Azahar, melonDS, RetroArch) ----
 
     static bool isPokemonGame(const std::string &name)
     {
@@ -1588,7 +1575,7 @@ namespace UI
         if (l.find("trading card") != std::string::npos || l.find("tcg") != std::string::npos)
             return "romfs:/icons/tcg.png";
 
-        return "romfs:/icons/tico.png";
+        return ""; // no art: the cartridge shows its console mark instead
     }
 
     void SaveSelectScreen::scanCitraDir(UserEntry &user, const std::string &basePath)
@@ -1658,6 +1645,8 @@ namespace UI
                         t.name = displayLabel;
                         t.folder = displayLabel;
                         t.iconPath = resolveGameIcon("3DS", displayLabel, mainPath);
+                        t.platform = "3DS";
+                        t.emulator = "Azahar";
 
                         char m[256];
                         snprintf(m, sizeof(m), "Citra: found 3DS save: %s (%s, %ld bytes, icon: %s)", mainPath,
@@ -1674,7 +1663,7 @@ namespace UI
         closedir(d0);
     }
 
-    void SaveSelectScreen::scanTicoDir(UserEntry &user, const std::string &dir, const std::string &platform)
+    void SaveSelectScreen::scanEmulatorDir(UserEntry &user, const std::string &dir, const std::string &platform)
     {
         DIR *d = opendir(dir.c_str());
         if (!d)
@@ -1721,7 +1710,7 @@ namespace UI
                         else if (subName.size() > 4)
                         {
                             std::string ext = subName.substr(subName.size() - 4);
-                            if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv")
+                            if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv" || ext == ".srm" || ext == ".SRM")
                             {
                                 isSubSave = true;
                                 rawLabel = subName.substr(0, subName.size() - 4);
@@ -1753,9 +1742,11 @@ namespace UI
                         t.name = displayLabel;
                         t.folder = displayLabel;
                         t.iconPath = resolveGameIcon(platform, displayLabel, subFullPath);
+                        t.platform = displayPlatform(platform);
+                        t.emulator = emulatorFor(subFullPath, platform);
 
                         char m[256];
-                        snprintf(m, sizeof(m), "Tico: found %s save: %s (size %ld, icon: %s)", platform.c_str(),
+                        snprintf(m, sizeof(m), "Emulator: found %s save: %s (size %ld, icon: %s)", platform.c_str(),
                                  subFullPath.c_str(), (long)subSt.st_size, t.iconPath.c_str());
                         logInfoToFile(m);
 
@@ -1781,7 +1772,7 @@ namespace UI
             else if (name.size() > 4)
             {
                 std::string ext = name.substr(name.size() - 4);
-                if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv")
+                if (ext == ".sav" || ext == ".SAV" || ext == ".Sav" || ext == ".dsv" || ext == ".srm" || ext == ".SRM")
                 {
                     isSave = true;
                     rawLabel = name.substr(0, name.size() - 4);
@@ -1819,9 +1810,11 @@ namespace UI
             t.name = displayLabel;
             t.folder = displayLabel;
             t.iconPath = resolveGameIcon(platform, displayLabel, fullPath);
+            t.platform = displayPlatform(platform);
+            t.emulator = emulatorFor(fullPath, platform);
 
             char m[256];
-            snprintf(m, sizeof(m), "Tico: found %s save: %s (size %ld, icon: %s)", platform.c_str(), fullPath.c_str(),
+            snprintf(m, sizeof(m), "Emulator: found %s save: %s (size %ld, icon: %s)", platform.c_str(), fullPath.c_str(),
                      (long)st.st_size, t.iconPath.c_str());
             logInfoToFile(m);
 
@@ -1830,46 +1823,55 @@ namespace UI
         closedir(d);
     }
 
-    void SaveSelectScreen::loadTicoSaves()
+    void SaveSelectScreen::loadEmulatorSaves()
     {
-        UserEntry tico;
-        tico.name = "Tico Emulator";
-        memset(&tico.accountUid, 0xFF, sizeof(AccountUid)); // sentinel UID (0xFF...FF)
+        // Emulator saves belong to no Switch account: they are files on the SD card. They are gathered
+        // here and then shown on EVERY trainer's shelf, after that trainer's own Switch saves.
+        UserEntry found;
 
         // 1. Scan Azahar / Citra 3DS simulated SD card saves FIRST.
         // Citra/Azahar saves to sdmc:/tico/system/3ds/sdmc/Nintendo 3DS/.../title/00040000/<tid>/data/00000001/main.
         // Prioritizing this ensures the authentic live 3DS save is always targeted over loose or stale files.
-        scanCitraDir(tico, "sdmc:/tico/system/3ds/sdmc/Nintendo 3DS");
+        scanCitraDir(found, "sdmc:/tico/system/3ds/sdmc/Nintendo 3DS");
 
-        // 2. Scan standard Tico save directories (GBA, GBC, NDS, 3DS)
-        scanTicoDir(tico, "sdmc:/tico/saves/gba", "GBA");
-        scanTicoDir(tico, "sdmc:/tico/saves/gbc", "GBC");
-        scanTicoDir(tico, "sdmc:/tico/saves/nds", "NDS");
-        scanTicoDir(tico, "sdmc:/tico/saves/3ds", "3DS");
+        // 2. The emulators' save folders on the SD card (GBA, GBC, NDS, 3DS)
+        scanEmulatorDir(found, "sdmc:/tico/saves/gba", "GBA");
+        scanEmulatorDir(found, "sdmc:/tico/saves/gbc", "GBC");
+        scanEmulatorDir(found, "sdmc:/tico/saves/nds", "NDS");
+        scanEmulatorDir(found, "sdmc:/tico/saves/3ds", "3DS");
 
-        // 3. Scan Tico ROM directories
-        scanTicoDir(tico, "sdmc:/tico/roms/gba", "GBA");
-        scanTicoDir(tico, "sdmc:/tico/roms/gbc", "GBC");
-        scanTicoDir(tico, "sdmc:/tico/roms/nds", "NDS");
-        scanTicoDir(tico, "sdmc:/tico/roms/3ds", "3DS");
+        // 3. Saves kept next to the ROMs
+        scanEmulatorDir(found, "sdmc:/tico/roms/gba", "GBA");
+        scanEmulatorDir(found, "sdmc:/tico/roms/gbc", "GBC");
+        scanEmulatorDir(found, "sdmc:/tico/roms/nds", "NDS");
+        scanEmulatorDir(found, "sdmc:/tico/roms/3ds", "3DS");
 
         // 4. Scan RetroArch NDS ROMs & Standalone melonDS directories
-        scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS", "NDS");
-        scanTicoDir(tico, "sdmc:/retroarch/ROMS/NDS/melonDS", "NDS");
-        scanTicoDir(tico, "sdmc:/retroarch/cores/savefiles/melonDS", "NDS");
+        scanEmulatorDir(found, "sdmc:/retroarch/ROMS/NDS", "NDS");
+        scanEmulatorDir(found, "sdmc:/retroarch/ROMS/NDS/melonDS", "NDS");
+        scanEmulatorDir(found, "sdmc:/retroarch/cores/savefiles/melonDS", "NDS");
 
-        if (!tico.titles.empty())
+        // RetroArch keeps GBA / Game Boy saves per core (or flat, with sorting off).
+        scanEmulatorDir(found, "sdmc:/retroarch/ROMS/GBA", "GBA");
+        scanEmulatorDir(found, "sdmc:/retroarch/cores/savefiles/mGBA", "GBA");
+        scanEmulatorDir(found, "sdmc:/retroarch/cores/savefiles/gpSP", "GBA");
+        scanEmulatorDir(found, "sdmc:/retroarch/cores/savefiles/Gambatte", "GBC");
+        scanEmulatorDir(found, "sdmc:/retroarch/cores/savefiles/SameBoy", "GBC");
+
+        if (found.titles.empty())
+            return;
+        char m[128];
+        snprintf(m, sizeof(m), "Emulator: %d saves found", (int)found.titles.size());
+        logInfoToFile(m);
+        if (users.empty())
         {
-            char m[128];
-            snprintf(m, sizeof(m), "Tico: %d emulator saves found", (int)tico.titles.size());
-            logInfoToFile(m);
-
-            if (users.size() == 1 && users[0].titles.empty())
-            {
-                users.clear();
-            }
-            users.push_back(std::move(tico));
+            // No account could be listed: the saves still need a shelf to sit on.
+            UserEntry console;
+            console.name = "This console";
+            users.push_back(std::move(console));
         }
+        for (auto &user : users)
+            user.titles.insert(user.titles.end(), found.titles.begin(), found.titles.end());
     }
 }
 

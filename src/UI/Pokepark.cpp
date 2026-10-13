@@ -476,6 +476,57 @@ namespace UI
             }
     }
 
+    void PokeparkManager::adoptLegacyResidents(const Trainer::Trainer &trainer, const std::string &gameKey,
+                                               const std::string &gameName)
+    {
+        bool changed = false;
+        for (auto &res : residents)
+        {
+            if (res.id.find('#') != std::string::npos)
+                continue; // already belongs to a game
+            const Pokemon::Pokemon *mon = nullptr;
+            std::string where;
+            int box = -1, slot = -1;
+            if (std::sscanf(res.id.c_str(), "party:%d", &slot) == 1)
+            {
+                if (slot >= 0 && slot < static_cast<int>(trainer.party.size()))
+                    mon = trainer.party[slot].get();
+                where = "Party " + std::to_string(slot + 1);
+            }
+            else if (std::sscanf(res.id.c_str(), "box:%d:%d", &box, &slot) == 2)
+            {
+                if (box >= 0 && box < static_cast<int>(trainer.boxes.size()) && slot >= 0 &&
+                    slot < static_cast<int>(trainer.getSlotsPerBox()))
+                    mon = trainer.boxes[box][slot].get();
+                where = "Box " + std::to_string(box + 1) + ", slot " + std::to_string(slot + 1);
+            }
+            if (!mon || mon->speciesID() != res.species)
+                continue;
+            const std::string newId = gameKey + "#" + res.id;
+            // Its relationships move with it.
+            std::map<std::string, ParkRelationship> moved;
+            for (auto &[key, rel] : relationships)
+            {
+                ParkRelationship copy = rel;
+                if (copy.firstId == res.id)
+                    copy.firstId = newId;
+                if (copy.secondId == res.id)
+                    copy.secondId = newId;
+                moved[copy.key()] = copy;
+            }
+            relationships.swap(moved);
+            for (auto &ev : journal)
+                for (auto &id : ev.residentIds)
+                    if (id == res.id)
+                        id = newId;
+            res.id = newId;
+            res.sourceInfo = gameName + "  ·  " + where;
+            changed = true;
+        }
+        if (changed)
+            saveState();
+    }
+
     PokeparkManager &PokeparkManager::instance()
     {
         static PokeparkManager s_instance;

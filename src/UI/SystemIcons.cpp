@@ -97,17 +97,6 @@ namespace UI
         if (iterator != s_userCache.end())
             return iterator->second;
 
-        // Check for Tico sentinel user (0xFF...)
-        if (accountUid.uid[0] == 0xFFFFFFFFFFFFFFFFULL && accountUid.uid[1] == 0xFFFFFFFFFFFFFFFFULL)
-        {
-            const IconImage &tico = fileIcon("romfs:/icons/tico.png");
-            if (tico.valid())
-                return s_userCache.emplace(key, tico).first->second;
-            const IconImage &ticoSdmc = fileIcon("sdmc:/tico/assets/icons/tico.png");
-            if (ticoSdmc.valid())
-                return s_userCache.emplace(key, ticoSdmc).first->second;
-        }
-
         IconImage image;
         AccountProfile profile;
         if (R_SUCCEEDED(accountGetProfile(&profile, accountUid)))

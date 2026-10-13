@@ -548,7 +548,11 @@ namespace UI
             row("Doing", res.currentActivity);
             const std::string bonds = mgr.bondSummary(residentIndex);
             row("Bonds", bonds.empty() ? std::string("Still getting to know everyone") : bonds);
-            row("From", res.sourceInfo);
+            // The game it came from, then where in it. A resident from before the park was shared
+            // knows only its slot until that game is opened once (adoptLegacyResidents).
+            row("From", res.sourceInfo.find("  ·  ") != std::string::npos
+                            ? res.sourceInfo
+                            : res.sourceInfo + "  (open its game once to name it)");
 
             // Berry choice for Snack (Up/Down).
             static const char *berryNames[5] = {"Cheri (spicy)", "Chesto (dry)", "Pecha (sweet)", "Rawst (bitter)", "Aspear (sour)"};
@@ -729,10 +733,24 @@ namespace UI
                 if (Sprite *icon = SpriteManager::getIconSprite(r.species, r.form, r.shiny); icon && icon->data)
                     fb.drawSpriteFit(lX + 4, ry - 2, 38, 32, icon->width, icon->height, icon->data, icon->channels);
                 fb.drawText(lX + 46, fb.textYCenteredOn(ry + (rowH - 4) / 2), r.name, Colors::Text);
-                const char *trait = PokeparkManager::getPersonalityName(r.personality);
+                // Which game it came from (the park is shared, so this is the useful thing to know here).
+                const size_t cut = r.sourceInfo.find("  ·  ");
+                std::string game = cut != std::string::npos ? r.sourceInfo.substr(0, cut) : std::string("Earlier game");
+                if (game.rfind("Pokémon ", 0) == 0)
+                    game = game.substr(std::string("Pokémon ").size());
                 int tw, th;
-                fb.measureText(trait, tw, th, TextStyle::Caption);
-                fb.drawText(lX + lW - tw - 12, fb.textYCenteredOn(ry + (rowH - 4) / 2, TextStyle::Caption), trait,
+                fb.measureText(game, tw, th, TextStyle::Caption);
+                const int maxW = lW - 46 - 130;
+                while (tw > maxW && game.size() > 4)
+                {
+                    game.pop_back();
+                    while (!game.empty() && (static_cast<unsigned char>(game.back()) & 0xC0) == 0x80)
+                        game.pop_back();
+                    fb.measureText(game + "...", tw, th, TextStyle::Caption);
+                    if (tw <= maxW)
+                        game += "...";
+                }
+                fb.drawText(lX + lW - tw - 12, fb.textYCenteredOn(ry + (rowH - 4) / 2, TextStyle::Caption), game,
                             Colors::TextDim, TextStyle::Caption);
                 screen.touchButtons.push_back({400 + i, lX, ry, lW, rowH - 4});
             }
